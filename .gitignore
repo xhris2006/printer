@@ -1,0 +1,23 @@
+# Dépendances et builds
+node_modules/
+dist/
+.next/
+out/
+coverage/
+*.tsbuildinfo
+
+# Environnement et secrets
+.env
+.env.*
+!.env.example
+
+# Fichiers téléversés en local
+backend/storage/
+
+# Journaux et tests
+*.log
+npm-debug.log*
+playwright-report/
+test-results/
+.vercel
+.DS_Store
