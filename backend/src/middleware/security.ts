@@ -1,6 +1,6 @@
 import type { NextFunction, Request, Response } from "express";
 import { rateLimit } from "express-rate-limit";
-import { frontendOrigins, isTest } from "../config/env";
+import { env, frontendOrigins, isProduction, isTest } from "../config/env";
 import { forbidden } from "../lib/errors";
 
 const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
@@ -23,7 +23,7 @@ function limiter(windowMs: number, limit: number, message: string) {
     limit,
     standardHeaders: "draft-8",
     legacyHeaders: false,
-    skip: () => isTest,
+    skip: () => isTest || (env.DISABLE_RATE_LIMIT && !isProduction),
     message: { error: { code: "RATE_LIMITED", message } },
   });
 }

@@ -60,6 +60,8 @@ const schema = z.object({
   CLAMAV_HOST: optionalString,
   CLAMAV_PORT: z.coerce.number().int().positive().default(3310),
 
+  /** Désactive la limitation de débit (tests E2E locaux uniquement, ignoré en production) */
+  DISABLE_RATE_LIMIT: bool(false),
   WORKER_INLINE: bool(true),
   WORKER_CONCURRENCY: z.coerce.number().int().min(1).max(8).default(2),
   WORKER_POLL_MS: z.coerce.number().int().min(100).default(1500),
