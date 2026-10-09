@@ -53,8 +53,6 @@ export function DashboardShell({
     else if (allowedRoles && !allowedRoles.includes(user.role)) router.replace("/espace");
   }, [user, isLoading, allowedRoles, router, pathname]);
 
-  useEffect(() => setOpen(false), [pathname]);
-
   if (isLoading || !user || (allowedRoles && !allowedRoles.includes(user.role))) {
     return <Spinner className="min-h-screen" label="Chargement de votre espace…" />;
   }
@@ -81,6 +79,7 @@ export function DashboardShell({
           <Link
             key={item.href}
             href={item.href}
+            onClick={() => setOpen(false)}
             className={cn(
               "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
               isActive(item) ? "bg-sidebar-active text-white shadow-sm" : "text-sidebar-foreground/85 hover:bg-white/10 hover:text-white",

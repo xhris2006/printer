@@ -309,3 +309,26 @@ export interface NotificationItem {
   readAt: string | null;
   createdAt: string;
 }
+
+export interface AdminOrderRow {
+  id: string;
+  reference: string;
+  type: Order["type"];
+  status: OrderStatus;
+  statusLabel: string;
+  paymentStatus: PaymentState;
+  creditApproved: boolean;
+  fulfillmentMethod: "PICKUP" | "DELIVERY";
+  total: number | null;
+  customer: { id: string; fullName: string; phone: string };
+  group: { id: string; code: string; name: string } | null;
+  itemsCount: number;
+  pagesCount: number;
+  sheetsCount: number;
+  needsPageCheck: boolean;
+  overduePickup: boolean;
+  reminderCount: number;
+  createdAt: string;
+  paidAt: string | null;
+  readyAt: string | null;
+}

@@ -141,11 +141,14 @@ function WizardInner({ config }: { config: PublicConfig }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  useEffect(() => {
-    if (me && !fulfillment.recipientName && !fulfillment.phone) {
+  // Pré-remplissage des coordonnées de livraison (ajustement d'état pendant le rendu)
+  const [prefilled, setPrefilled] = useState(false);
+  if (me && !prefilled) {
+    setPrefilled(true);
+    if (!fulfillment.recipientName && !fulfillment.phone) {
       setFulfillment((f) => ({ ...f, recipientName: me.fullName, phone: formatPhone(me.phone), quarter: me.profile?.quarter ?? "" }));
     }
-  }, [me, fulfillment.recipientName, fulfillment.phone]);
+  }
 
   const updateDoc = useCallback((key: string, patch: Partial<WizardDoc>) => {
     setDocs((list) => list.map((d) => (d.key === key ? { ...d, ...patch } : d)));
@@ -201,41 +204,39 @@ function WizardInner({ config }: { config: PublicConfig }) {
 
   // ── Suivi de l'analyse asynchrone ──
   const processingIds = docs.filter((d) => d.phase === "processing" && d.document).map((d) => d.document!.id);
-  const analysis = useQuery({
+  useQuery({
     queryKey: ["documents", "analysis", processingIds.join(",")],
-    queryFn: () => api<Paginated<ApiDocument>>(`/documents?ids=${processingIds.join(",")}`),
+    queryFn: async () => {
+      const res = await api<Paginated<ApiDocument>>(`/documents?ids=${processingIds.join(",")}`);
+      setDocs((list) =>
+        list.map((d) => {
+          const fresh = res.items.find((x) => x.id === d.document?.id);
+          if (!fresh || d.phase !== "processing") return d;
+          return { ...d, document: fresh, phase: ANALYZING_STATUSES.has(fresh.status) ? "processing" : "done" };
+        }),
+      );
+      return res;
+    },
     enabled: processingIds.length > 0,
     refetchInterval: 1500,
   });
-  useEffect(() => {
-    if (!analysis.data) return;
-    setDocs((list) =>
-      list.map((d) => {
-        const fresh = analysis.data.items.find((x) => x.id === d.document?.id);
-        if (!fresh || d.phase !== "processing") return d;
-        return { ...d, document: fresh, phase: ANALYZING_STATUSES.has(fresh.status) ? "processing" : "done" };
-      }),
-    );
-  }, [analysis.data]);
 
   // ── Estimation serveur en temps réel ──
   const readyDocs = docs.filter((d) => d.document?.status === "READY" && d.document.pageCount);
-  const estimatePayload = useDebounced(
-    useMemo(
-      () => ({
-        items: readyDocs.map((d) => ({ key: d.key, documentId: d.document!.id, options: effectiveOptions(d, defaults) })),
-        fulfillment:
-          group?.kind === "contribution"
-            ? { method: "PICKUP" as const }
-            : { method: fulfillment.method, zoneId: fulfillment.method === "DELIVERY" && fulfillment.zoneId ? fulfillment.zoneId : null },
-      }),
-      // eslint-disable-next-line react-hooks/exhaustive-deps
-      [JSON.stringify(readyDocs.map((d) => [d.key, d.document?.id, d.custom, d.options])), defaults, fulfillment.method, fulfillment.zoneId, group?.kind],
-    ),
+  // La clé est une chaîne : la temporisation reste stable entre deux rendus identiques
+  const estimateKey = useDebounced(
+    JSON.stringify({
+      items: readyDocs.map((d) => ({ key: d.key, documentId: d.document!.id, options: effectiveOptions(d, defaults) })),
+      fulfillment:
+        group?.kind === "contribution"
+          ? { method: "PICKUP" }
+          : { method: fulfillment.method, zoneId: fulfillment.method === "DELIVERY" && fulfillment.zoneId ? fulfillment.zoneId : null },
+    }),
     250,
   );
+  const estimatePayload = useMemo(() => JSON.parse(estimateKey) as { items: unknown[] }, [estimateKey]);
   const estimate = useQuery({
-    queryKey: ["estimate", estimatePayload],
+    queryKey: ["estimate", estimateKey],
     queryFn: () => api<EstimateResponse>("/pricing/estimate", { body: estimatePayload }),
     enabled: estimatePayload.items.length > 0,
     placeholderData: (prev) => prev,

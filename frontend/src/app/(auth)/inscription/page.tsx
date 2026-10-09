@@ -40,7 +40,8 @@ function RegisterForm() {
   const form = useForm<Values>({ resolver: zodResolver(schema), defaultValues: { fullName: "", phone: "", email: "", password: "", confirm: "" } });
   const { errors } = form.formState;
 
-  const onSubmit = form.handleSubmit(async ({ confirm: _confirm, ...values }) => {
+  const onSubmit = form.handleSubmit(async ({ fullName, phone, email, password }) => {
+    const values = { fullName, phone, email, password };
     try {
       const { user } = await api<{ user: User }>("/auth/register", { body: values });
       await refreshMe(user);

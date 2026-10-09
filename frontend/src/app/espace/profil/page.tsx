@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { toast } from "sonner";
 import { api, errorMessage } from "@/lib/api";
 import { formatPhone } from "@/lib/format";
@@ -14,25 +14,23 @@ import { Switch } from "@/components/ui/choice";
 
 export default function ProfilePage() {
   const { data: user } = useMe();
+  if (!user) return <Spinner />;
+  return <ProfileForms key={user.id} user={user} />;
+}
+
+function ProfileForms({ user }: { user: User }) {
   const refreshMe = useRefreshMe();
-  const [form, setForm] = useState({ fullName: "", email: "", quarter: "", addressDetails: "", notifyByEmail: true });
+  const [form, setForm] = useState({
+    fullName: user.fullName,
+    email: user.email ?? "",
+    quarter: user.profile?.quarter ?? "",
+    addressDetails: user.profile?.addressDetails ?? "",
+    notifyByEmail: user.profile?.notifyByEmail ?? true,
+  });
   const [pwd, setPwd] = useState({ currentPassword: "", newPassword: "" });
   const [saving, setSaving] = useState(false);
   const [savingPwd, setSavingPwd] = useState(false);
 
-  useEffect(() => {
-    if (user) {
-      setForm({
-        fullName: user.fullName,
-        email: user.email ?? "",
-        quarter: user.profile?.quarter ?? "",
-        addressDetails: user.profile?.addressDetails ?? "",
-        notifyByEmail: user.profile?.notifyByEmail ?? true,
-      });
-    }
-  }, [user]);
-
-  if (!user) return <Spinner />;
 
   const save = async (e: React.FormEvent) => {
     e.preventDefault();
