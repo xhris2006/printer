@@ -1,0 +1,811 @@
+// Schéma de données — Print & Secrétariat
+// Tous les montants sont des entiers exprimés en FCFA (XAF, pas de centimes).
+
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "debian-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────── Utilisateurs & rôles ───────────────────────────────
+
+enum RoleCode {
+  CUSTOMER
+  DELEGATE
+  OPERATOR
+  ADMIN
+}
+
+model Role {
+  code        RoleCode @id
+  label       String
+  description String?
+  users       User[]
+}
+
+model User {
+  id           String    @id @default(cuid())
+  fullName     String
+  email        String?   @unique
+  phone        String    @unique
+  passwordHash String
+  roleCode     RoleCode  @default(CUSTOMER)
+  role         Role      @relation(fields: [roleCode], references: [code])
+  isActive     Boolean   @default(true)
+  lastLoginAt  DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  customerProfile   CustomerProfile?
+  delegateProfile   DelegateProfile?
+  reviewedDelegates DelegateProfile[]    @relation("DelegateReviewer")
+  sessions          Session[]
+  passwordResets    PasswordResetToken[]
+  documents         Document[]
+  orders            Order[]              @relation("OrderCustomer")
+  creditApprovals   Order[]              @relation("OrderCreditApprover")
+  groupOrders       GroupOrder[]         @relation("GroupDelegate")
+  contributions     GroupContribution[]
+  quotes            Quote[]              @relation("QuoteCustomer")
+  quotesIssued      Quote[]              @relation("QuoteIssuer")
+  notifications     Notification[]
+  auditLogs         AuditLog[]
+  statusChanges     OrderStatusHistory[]
+  declaredPayments  Payment[]            @relation("PaymentDeclarer")
+  verifiedPayments  Payment[]            @relation("PaymentVerifier")
+  handledPickups    Pickup[]
+  handledDeliveries Delivery[]
+  priceRuleUpdates  PriceRule[]
+  settingUpdates    AppSetting[]
+  refunds           Refund[]
+
+  @@index([roleCode])
+  @@index([createdAt])
+}
+
+model CustomerProfile {
+  id             String   @id @default(cuid())
+  userId         String   @unique
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  quarter        String?
+  addressDetails String?
+  notifyByEmail  Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}
+
+enum DelegateStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  SUSPENDED
+}
+
+model DelegateProfile {
+  id           String         @id @default(cuid())
+  userId       String         @unique
+  user         User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  status       DelegateStatus @default(PENDING)
+  institution  String
+  field        String
+  level        String
+  className    String
+  motivation   String?
+  reviewedById String?
+  reviewedBy   User?          @relation("DelegateReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+  reviewedAt   DateTime?
+  reviewNote   String?
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+
+  @@index([status])
+}
+
+model Session {
+  id         String   @id @default(cuid())
+  tokenHash  String   @unique
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt  DateTime
+  lastUsedAt DateTime @default(now())
+  ip         String?
+  userAgent  String?
+  createdAt  DateTime @default(now())
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+model PasswordResetToken {
+  id        String    @id @default(cuid())
+  tokenHash String    @unique
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+}
+
+// ─────────────────────────────── Documents ───────────────────────────────
+
+enum DocumentKind {
+  PDF
+  DOC
+  DOCX
+  JPEG
+  PNG
+}
+
+enum DocumentStatus {
+  PENDING_UPLOAD
+  UPLOADED
+  ANALYZING
+  READY
+  NEEDS_REVIEW
+  FAILED
+  REJECTED
+  DELETED
+}
+
+enum PageCountSource {
+  DETECTED
+  IMAGE_DEFAULT
+  CUSTOMER_DECLARED
+  STAFF_SET
+}
+
+model Document {
+  id               String           @id @default(cuid())
+  ownerId          String
+  owner            User             @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  originalName     String
+  extension        String
+  declaredMime     String?
+  kind             DocumentKind?
+  sizeBytes        Int
+  storageKey       String           @unique
+  pdfStorageKey    String?
+  checksumSha256   String?
+  pageCount        Int?
+  pageCountSource  PageCountSource?
+  status           DocumentStatus   @default(PENDING_UPLOAD)
+  analysisError    String?
+  analysisAttempts Int              @default(0)
+  quoteId          String?
+  quote            Quote?           @relation(fields: [quoteId], references: [id], onDelete: SetNull)
+  uploadExpiresAt  DateTime?
+  analyzedAt       DateTime?
+  purgedAt         DateTime?
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+
+  orderItems OrderItem[]
+
+  @@index([ownerId, createdAt])
+  @@index([status])
+  @@index([quoteId])
+}
+
+// ─────────────────────────────── Tarification ───────────────────────────────
+
+enum ColorMode {
+  BW
+  COLOR
+}
+
+enum Sides {
+  SINGLE
+  DOUBLE
+}
+
+enum PaperFormat {
+  A4
+  A3
+}
+
+enum FinishingCode {
+  NONE
+  SPIRAL
+  STAPLE
+  HARDCOVER
+}
+
+enum PricingUnit {
+  PER_FACE
+  PER_SHEET
+}
+
+model PrintConfiguration {
+  id            String          @id @default(cuid())
+  colorMode     ColorMode       @default(BW)
+  sides         Sides           @default(SINGLE)
+  paperFormat   PaperFormat     @default(A4)
+  finishingCode FinishingCode   @default(NONE)
+  finishing     FinishingOption @relation(fields: [finishingCode], references: [code])
+  copies        Int             @default(1)
+  createdAt     DateTime        @default(now())
+
+  orderItem  OrderItem?
+  groupOrder GroupOrder?
+}
+
+/// Prix d'impression pour une combinaison couleur / faces / format.
+/// unitPrice null = tarif non configuré : la combinaison ne peut pas être commandée.
+model PriceRule {
+  id          String      @id @default(cuid())
+  colorMode   ColorMode
+  sides       Sides
+  paperFormat PaperFormat
+  unitPrice   Int?
+  unit        PricingUnit @default(PER_FACE)
+  isActive    Boolean     @default(true)
+  updatedById String?
+  updatedBy   User?       @relation(fields: [updatedById], references: [id], onDelete: SetNull)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  @@unique([colorMode, sides, paperFormat])
+}
+
+/// Option de finition facturée par exemplaire relié/agrafé.
+model FinishingOption {
+  code      FinishingCode @id
+  label     String
+  price     Int
+  isActive  Boolean       @default(true)
+  sortOrder Int           @default(0)
+  updatedAt DateTime      @updatedAt
+
+  printConfigurations PrintConfiguration[]
+}
+
+// ─────────────────────────────── Retrait & livraison ───────────────────────────────
+
+model PickupPoint {
+  id        String   @id @default(cuid())
+  name      String
+  address   String
+  hours     String?
+  phone     String?
+  isActive  Boolean  @default(true)
+  isDefault Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  orders      Order[]
+  pickups     Pickup[]
+  groupOrders GroupOrder[]
+}
+
+model DeliveryZone {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  fee       Int
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  deliveries Delivery[]
+}
+
+// ─────────────────────────────── Commandes ───────────────────────────────
+
+enum OrderType {
+  STANDARD
+  GROUP
+  SERVICE
+}
+
+enum OrderStatus {
+  DRAFT
+  PENDING_PAYMENT
+  PAID
+  TO_PREPARE
+  PRINTING
+  FINISHING
+  READY_FOR_PICKUP
+  OUT_FOR_DELIVERY
+  COMPLETED
+  CANCELLED
+  REFUNDED
+}
+
+enum PaymentState {
+  UNPAID
+  PENDING
+  PAID
+  REFUNDED
+}
+
+enum FulfillmentMethod {
+  PICKUP
+  DELIVERY
+}
+
+model Order {
+  id                String            @id @default(cuid())
+  reference         String            @unique
+  trackingToken     String            @unique
+  customerId        String
+  customer          User              @relation("OrderCustomer", fields: [customerId], references: [id], onDelete: Restrict)
+  type              OrderType         @default(STANDARD)
+  status            OrderStatus       @default(DRAFT)
+  paymentStatus     PaymentState      @default(UNPAID)
+  fulfillmentMethod FulfillmentMethod @default(PICKUP)
+  pickupPointId     String?
+  pickupPoint       PickupPoint?      @relation(fields: [pickupPointId], references: [id], onDelete: SetNull)
+  groupOrderId      String?
+  groupOrder        GroupOrder?       @relation(fields: [groupOrderId], references: [id], onDelete: SetNull)
+  quoteId           String?           @unique
+  quote             Quote?            @relation("QuoteOrder", fields: [quoteId], references: [id], onDelete: SetNull)
+
+  /// Sous-total impression + finitions
+  subtotal        Int     @default(0)
+  /// null = frais de livraison à confirmer (paiement bloqué)
+  deliveryFee     Int?
+  /// null tant que le total ne peut pas être déterminé
+  total           Int?
+  amountPaid      Int     @default(0)
+  currency        String  @default("XAF")
+  /// Instantané des tarifs appliqués au moment de la confirmation
+  pricingSnapshot Json?
+  notes           String?
+
+  creditApproved     Boolean   @default(false)
+  creditApprovedById String?
+  creditApprovedBy   User?     @relation("OrderCreditApprover", fields: [creditApprovedById], references: [id], onDelete: SetNull)
+  creditReason       String?
+  creditApprovedAt   DateTime?
+
+  pickupCode     String
+  confirmedAt    DateTime?
+  paidAt         DateTime?
+  readyAt        DateTime?
+  completedAt    DateTime?
+  cancelledAt    DateTime?
+  cancelReason   String?
+  reminderCount  Int       @default(0)
+  lastReminderAt DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  items         OrderItem[]
+  payments      Payment[]
+  delivery      Delivery?
+  pickup        Pickup?
+  statusHistory OrderStatusHistory[]
+  contribution  GroupContribution?
+  notifications Notification[]
+  refunds       Refund[]
+
+  @@index([customerId, createdAt])
+  @@index([status, createdAt])
+  @@index([paymentStatus])
+  @@index([type])
+  @@index([groupOrderId])
+  @@index([createdAt])
+}
+
+enum OrderItemKind {
+  PRINT
+  SERVICE
+}
+
+model OrderItem {
+  id                 String              @id @default(cuid())
+  orderId            String
+  order              Order               @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  kind               OrderItemKind       @default(PRINT)
+  position           Int                 @default(0)
+  documentId         String?
+  document           Document?           @relation(fields: [documentId], references: [id], onDelete: SetNull)
+  documentName       String?
+  printConfigId      String?             @unique
+  printConfig        PrintConfiguration? @relation(fields: [printConfigId], references: [id], onDelete: SetNull)
+  description        String?
+  /// Pages du fichier
+  pageCount          Int                 @default(0)
+  /// Feuilles physiques (toutes copies)
+  sheets             Int                 @default(0)
+  /// Faces imprimées (toutes copies)
+  faces              Int                 @default(0)
+  copies             Int                 @default(1)
+  unitPrice          Int                 @default(0)
+  pricingUnit        PricingUnit?
+  printCost          Int                 @default(0)
+  finishingUnitPrice Int                 @default(0)
+  finishingCost      Int                 @default(0)
+  lineTotal          Int                 @default(0)
+  createdAt          DateTime            @default(now())
+
+  @@index([orderId])
+  @@index([documentId])
+}
+
+model OrderStatusHistory {
+  id         String       @id @default(cuid())
+  orderId    String
+  order      Order        @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  fromStatus OrderStatus?
+  toStatus   OrderStatus
+  actorId    String?
+  actor      User?        @relation(fields: [actorId], references: [id], onDelete: SetNull)
+  note       String?
+  createdAt  DateTime     @default(now())
+
+  @@index([orderId, createdAt])
+}
+
+enum DeliveryStatus {
+  PENDING
+  OUT_FOR_DELIVERY
+  DELIVERED
+  FAILED
+}
+
+model Delivery {
+  id            String         @id @default(cuid())
+  orderId       String         @unique
+  order         Order          @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  recipientName String
+  phone         String
+  quarter       String
+  directions    String?
+  zoneId        String?
+  zone          DeliveryZone?  @relation(fields: [zoneId], references: [id], onDelete: SetNull)
+  fee           Int?
+  status        DeliveryStatus @default(PENDING)
+  dispatchedAt  DateTime?
+  deliveredAt   DateTime?
+  receivedBy    String?
+  proofNote     String?
+  handledById   String?
+  handledBy     User?          @relation(fields: [handledById], references: [id], onDelete: SetNull)
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+}
+
+enum PickupStatus {
+  WAITING
+  READY
+  PICKED_UP
+  NOT_COLLECTED
+}
+
+model Pickup {
+  id               String       @id @default(cuid())
+  orderId          String       @unique
+  order            Order        @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  pickupPointId    String?
+  pickupPoint      PickupPoint? @relation(fields: [pickupPointId], references: [id], onDelete: SetNull)
+  status           PickupStatus @default(WAITING)
+  readyAt          DateTime?
+  pickedUpAt       DateTime?
+  pickedUpBy       String?
+  verifiedWithCode Boolean      @default(false)
+  rescheduledTo    DateTime?
+  note             String?
+  handledById      String?
+  handledBy        User?        @relation(fields: [handledById], references: [id], onDelete: SetNull)
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+}
+
+// ─────────────────────────────── Commandes groupées ───────────────────────────────
+
+enum GroupMode {
+  DELEGATE_COLLECT
+  STUDENT_CONTRIBUTIONS
+}
+
+enum GroupStatus {
+  OPEN
+  CLOSED
+  IN_PRODUCTION
+  READY
+  COMPLETED
+  CANCELLED
+}
+
+enum GroupProductionRule {
+  FULL_PAYMENT
+  PAID_ONLY
+}
+
+model GroupOrder {
+  id                       String              @id @default(cuid())
+  code                     String              @unique
+  shareToken               String              @unique
+  delegateId               String
+  delegate                 User                @relation("GroupDelegate", fields: [delegateId], references: [id], onDelete: Restrict)
+  name                     String
+  institution              String
+  field                    String
+  level                    String
+  className                String
+  category                 String?
+  instructions             String?
+  mode                     GroupMode
+  status                   GroupStatus         @default(OPEN)
+  productionRule           GroupProductionRule @default(FULL_PAYMENT)
+  defaultPrintConfigId     String?             @unique
+  defaultPrintConfig       PrintConfiguration? @relation(fields: [defaultPrintConfigId], references: [id], onDelete: SetNull)
+  pickupPointId            String?
+  pickupPoint              PickupPoint?        @relation(fields: [pickupPointId], references: [id], onDelete: SetNull)
+  deadline                 DateTime?
+  closedAt                 DateTime?
+  productionStartedAt      DateTime?
+  productionOverride       Boolean             @default(false)
+  productionOverrideReason String?
+  createdAt                DateTime            @default(now())
+  updatedAt                DateTime            @updatedAt
+
+  contributions GroupContribution[]
+  orders        Order[]
+
+  @@index([delegateId, createdAt])
+  @@index([status])
+}
+
+model GroupContribution {
+  id            String     @id @default(cuid())
+  groupOrderId  String
+  groupOrder    GroupOrder @relation(fields: [groupOrderId], references: [id], onDelete: Cascade)
+  contributorId String
+  contributor   User       @relation(fields: [contributorId], references: [id], onDelete: Restrict)
+  orderId       String     @unique
+  order         Order      @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  note          String?
+  createdAt     DateTime   @default(now())
+
+  @@index([groupOrderId])
+  @@index([contributorId])
+}
+
+// ─────────────────────────────── Paiements ───────────────────────────────
+
+enum PaymentProvider {
+  FAPSHI
+  MOCK
+  CASH
+}
+
+enum PaymentMethod {
+  FAPSHI_CHECKOUT
+  FAPSHI_DIRECT
+  CASH_DECLARATION
+}
+
+enum PaymentStatus {
+  CREATED
+  PENDING
+  SUCCESSFUL
+  FAILED
+  EXPIRED
+  CANCELLED
+  PENDING_VERIFICATION
+  REJECTED
+}
+
+enum PaymentEnvironment {
+  LIVE
+  SANDBOX
+  OFFLINE
+}
+
+model Payment {
+  id              String             @id @default(cuid())
+  orderId         String
+  order           Order              @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  provider        PaymentProvider
+  method          PaymentMethod
+  environment     PaymentEnvironment
+  status          PaymentStatus      @default(CREATED)
+  amount          Int
+  providerTransId String?            @unique
+  paymentLink     String?
+  payerPhone      String?
+  medium          String?
+  providerStatus  String?
+  failureReason   String?
+  /// Paiement réussi reçu alors que la commande était déjà payée (à rembourser)
+  isDuplicate     Boolean            @default(false)
+  declaredById    String?
+  declaredBy      User?              @relation("PaymentDeclarer", fields: [declaredById], references: [id], onDelete: SetNull)
+  declarationNote String?
+  verifiedById    String?
+  verifiedBy      User?              @relation("PaymentVerifier", fields: [verifiedById], references: [id], onDelete: SetNull)
+  verifiedAt      DateTime?
+  confirmedAt     DateTime?
+  lastCheckedAt   DateTime?
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+
+  events PaymentEvent[]
+
+  @@index([orderId])
+  @@index([status, createdAt])
+}
+
+model PaymentEvent {
+  id              String          @id @default(cuid())
+  paymentId       String?
+  payment         Payment?        @relation(fields: [paymentId], references: [id], onDelete: SetNull)
+  provider        PaymentProvider
+  type            String
+  providerTransId String?
+  /// Clé d'idempotence (ex. webhook:<transId>:<status>)
+  dedupeKey       String?         @unique
+  /// Données nettoyées : aucune clé ni secret
+  payload         Json?
+  createdAt       DateTime        @default(now())
+
+  @@index([paymentId, createdAt])
+  @@index([providerTransId])
+}
+
+model Refund {
+  id            String   @id @default(cuid())
+  orderId       String
+  order         Order    @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  amount        Int
+  method        String
+  reference     String?
+  note          String?
+  processedById String
+  processedBy   User     @relation(fields: [processedById], references: [id], onDelete: Restrict)
+  createdAt     DateTime @default(now())
+
+  @@index([orderId])
+}
+
+// ─────────────────────────────── Secrétariat & devis ───────────────────────────────
+
+enum ServicePricingMode {
+  QUOTE
+  PRINT_FLOW
+}
+
+model ServiceOffering {
+  id          String             @id @default(cuid())
+  code        String             @unique
+  name        String
+  description String
+  pricingMode ServicePricingMode @default(QUOTE)
+  isActive    Boolean            @default(true)
+  sortOrder   Int                @default(0)
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+
+  quotes Quote[]
+}
+
+enum QuoteStatus {
+  REQUESTED
+  QUOTED
+  ACCEPTED
+  REJECTED
+  CANCELLED
+  EXPIRED
+}
+
+model Quote {
+  id           String          @id @default(cuid())
+  reference    String          @unique
+  customerId   String
+  customer     User            @relation("QuoteCustomer", fields: [customerId], references: [id], onDelete: Restrict)
+  serviceId    String
+  service      ServiceOffering @relation(fields: [serviceId], references: [id], onDelete: Restrict)
+  description  String
+  deadline     DateTime?
+  status       QuoteStatus     @default(REQUESTED)
+  amount       Int?
+  lines        Json?
+  adminMessage String?
+  validUntil   DateTime?
+  quotedById   String?
+  quotedBy     User?           @relation("QuoteIssuer", fields: [quotedById], references: [id], onDelete: SetNull)
+  quotedAt     DateTime?
+  respondedAt  DateTime?
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+
+  documents Document[]
+  order     Order?     @relation("QuoteOrder")
+
+  @@index([customerId, createdAt])
+  @@index([status])
+}
+
+// ─────────────────────────────── Notifications, audit, paramètres ───────────────────────────────
+
+enum NotificationChannel {
+  IN_APP
+  EMAIL
+  WHATSAPP
+}
+
+enum NotificationStatus {
+  QUEUED
+  SENT
+  FAILED
+  SKIPPED
+}
+
+model Notification {
+  id        String              @id @default(cuid())
+  userId    String
+  user      User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  orderId   String?
+  order     Order?              @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  channel   NotificationChannel
+  type      String
+  title     String
+  body      String
+  link      String?
+  status    NotificationStatus  @default(QUEUED)
+  error     String?
+  readAt    DateTime?
+  sentAt    DateTime?
+  createdAt DateTime            @default(now())
+
+  @@index([userId, createdAt])
+  @@index([status])
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  actorId    String?
+  actor      User?    @relation(fields: [actorId], references: [id], onDelete: SetNull)
+  action     String
+  entityType String
+  entityId   String?
+  metadata   Json?
+  ip         String?
+  createdAt  DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([entityType, entityId])
+  @@index([actorId])
+}
+
+model AppSetting {
+  key         String   @id
+  value       Json
+  updatedById String?
+  updatedBy   User?    @relation(fields: [updatedById], references: [id], onDelete: SetNull)
+  updatedAt   DateTime @updatedAt
+}
+
+// ─────────────────────────────── File de traitement asynchrone ───────────────────────────────
+
+enum JobStatus {
+  PENDING
+  RUNNING
+  DONE
+  FAILED
+}
+
+model Job {
+  id          String    @id @default(cuid())
+  type        String
+  payload     Json
+  status      JobStatus @default(PENDING)
+  attempts    Int       @default(0)
+  maxAttempts Int       @default(3)
+  runAt       DateTime  @default(now())
+  lockedAt    DateTime?
+  lockedBy    String?
+  lastError   String?
+  uniqueKey   String?   @unique
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([status, runAt])
+}
