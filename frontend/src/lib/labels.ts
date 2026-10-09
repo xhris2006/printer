@@ -1,4 +1,4 @@
-import type { ColorMode, FinishingCode, OrderStatus, PaperFormat, PaymentState, PaymentStatus, Sides } from "./types";
+import type { ColorMode, FinishingCode, OrderStatus, PaperFormat, PaymentState, PaymentStatus, Quote, Sides } from "./types";
 
 export const COLOR_LABELS: Record<ColorMode, string> = { BW: "Noir et blanc", COLOR: "Couleur" };
 export const SIDES_LABELS: Record<Sides, string> = { SINGLE: "Recto simple", DOUBLE: "Recto verso" };
@@ -50,3 +50,12 @@ export const TRACKING_STEPS: OrderStatus[] = ["PENDING_PAYMENT", "PAID", "TO_PRE
 export function optionsSummary(o: { colorMode: ColorMode; sides: Sides; paperFormat: PaperFormat; finishingCode: FinishingCode; copies: number }) {
   return `${COLOR_LABELS[o.colorMode]} · ${SIDES_LABELS[o.sides]} · ${o.paperFormat} · ${FINISHING_LABELS[o.finishingCode]}${o.copies > 1 ? ` · ${o.copies} ex.` : ""}`;
 }
+
+export const QUOTE_VARIANT: Record<Quote["status"], "warning" | "info" | "success" | "muted" | "danger"> = {
+  REQUESTED: "warning",
+  QUOTED: "info",
+  ACCEPTED: "success",
+  REJECTED: "muted",
+  CANCELLED: "muted",
+  EXPIRED: "danger",
+};
