@@ -70,6 +70,30 @@ export default function DocumentsPage() {
             <EmptyState icon={FileText} title="Aucun document" description="Les fichiers que vous téléversez apparaîtront ici." />
           ) : (
             <>
+              <ul className="space-y-2 md:hidden">
+                {data.items.map((d) => (
+                  <li key={d.id} className="flex items-center gap-3 rounded-lg border p-3">
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-medium">{d.originalName}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {d.kind} · {formatBytes(d.sizeBytes)} · {d.pageCount ?? "?"} p. · {formatDate(d.createdAt)}
+                      </p>
+                      <Badge className="mt-1" variant={STATUS[d.status]?.variant ?? "muted"}>
+                        {STATUS[d.status]?.label ?? d.status}
+                      </Badge>
+                    </div>
+                    {d.status !== "REJECTED" && (
+                      <Button size="icon" variant="ghost" onClick={() => download(d.id)} aria-label="Télécharger">
+                        <Download />
+                      </Button>
+                    )}
+                    <Button size="icon" variant="ghost" className="text-destructive" onClick={() => window.confirm("Supprimer ce document ?") && remove.mutate(d.id)} aria-label="Supprimer">
+                      <Trash2 />
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+              <div className="hidden md:block">
               <Table>
                 <THead>
                   <TR>
@@ -115,6 +139,7 @@ export default function DocumentsPage() {
                   ))}
                 </TBody>
               </Table>
+              </div>
               <Pagination page={data.page} pageCount={data.pageCount} onChange={setPage} />
             </>
           )}

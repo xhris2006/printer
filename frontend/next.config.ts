@@ -9,6 +9,8 @@ const backendUrl = (process.env.BACKEND_URL ?? "http://localhost:4000").replace(
 
 const nextConfig: NextConfig = {
   poweredByHeader: false,
+  // Pas de génération automatique de fichiers d'instructions pour agents IA
+  agentRules: false,
   reactStrictMode: true,
   async rewrites() {
     return [{ source: "/api/:path*", destination: `${backendUrl}/api/:path*` }];

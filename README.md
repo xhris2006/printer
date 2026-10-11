@@ -27,11 +27,13 @@ Les deux applications sont indépendantes. Le frontend relaie `/api/*` vers l'AP
   - fichier illisible : message explicite, puis déclaration par le client (vérifiée avant impression) ou nouvelle tentative. Aucun nombre n'est inventé.
 - Paramètres communs avec « Appliquer à tous », personnalisation d'un document, duplication de ses paramètres vers les autres, suppression, prix par document et total du lot.
 - Retrait gratuit au **Centre de santé de Mvam-essakoe** (points de retrait configurables) ou livraison (nom, téléphone, quartier, indications). Frais par zone, tarif par défaut ou « À confirmer » : dans ce dernier cas le paiement reste bloqué jusqu'à la validation par l'équipe. Aucun supplément express automatique.
-- Paiement Fapshi, retour de paiement avec revérification serveur, reçu PDF, code de retrait à 6 chiffres.
+- **Validation par le paiement** : à l'étape 4, le bouton « Payer … et valider » fige les montants et ouvre le paiement Fapshi. La commande n'est validée (et imprimée) qu'une fois le paiement confirmé. « Enregistrer en brouillon » permet de la reprendre et de la valider plus tard : les brouillons apparaissent dans « Mes commandes → Brouillons » et sur le tableau de bord.
+- Retour de paiement avec revérification serveur, reçu PDF, code de retrait à 6 chiffres.
 - Tableau de bord, commandes en cours et historique, annulation avant paiement, « Recommander » sans ressaisie.
 - Lien de suivi public sécurisé : statut et étapes uniquement, sans document, données personnelles ni paiement.
 - Notifications dans l'espace client, et par email si SMTP est configuré.
 - Bouton WhatsApp flottant ; messages préremplis incluant la référence de commande.
+- Version mobile soignée : barre de navigation basse, barre d'action collante avec le total dans le parcours de commande, fenêtres en panneau bas, listes en cartes, champs en 16 px (pas de zoom automatique sur iPhone), zones tactiles agrandies.
 
 **Délégués de classe** (espace validé par l'administration)
 - Lot nommé avec établissement, filière, niveau, classe, matière, instructions, date limite et paramètres d'impression communs.
@@ -97,12 +99,13 @@ createdb -O printer printer_dev
 
 # 2. API
 cd backend
-cp .env.example .env             # ajustez DATABASE_URL ; PAYMENT_PROVIDER=mock pour développer sans Fapshi
+cp .env.example .env             # ajustez DATABASE_URL, ADMIN_PHONE / ADMIN_FULL_NAME / ADMIN_PASSWORD ;
+                                 # PAYMENT_PROVIDER=mock pour développer sans Fapshi
 npm install
 npx prisma migrate deploy        # applique les migrations (rôles et finitions inclus)
 npm run db:seed                  # tarifs initiaux, point de retrait, prestations
-ADMIN_FULL_NAME="Votre Nom" ADMIN_PHONE="+2376XXXXXXXX" ADMIN_EMAIL="vous@exemple.cm" npm run create-admin
-npm run dev                      # http://localhost:4000 — documentation Swagger : http://localhost:4000/api/docs
+npm run dev                      # crée l'administrateur défini dans .env, puis http://localhost:4000
+                                 # documentation Swagger : http://localhost:4000/api/docs
 
 # 3. Frontend (autre terminal)
 cd frontend
@@ -167,20 +170,26 @@ Au démarrage, l'API valide sa configuration et refuse de se lancer en productio
 
 ---
 
-## 7. Compte administrateur initial
+## 7. Compte administrateur (défini par les variables)
 
-Aucun compte n'est créé par défaut et aucun mot de passe n'est écrit dans le code.
+Le numéro, le nom et le mot de passe de l'administrateur se définissent dans les **variables d'environnement de l'API** :
 
-```bash
-# Développement
-ADMIN_FULL_NAME="Nom Prénom" ADMIN_PHONE="+2376XXXXXXXX" ADMIN_EMAIL="admin@exemple.cm" npm run create-admin
-# Production (après build), par exemple dans un shell Railway
-ADMIN_FULL_NAME="Nom Prénom" ADMIN_PHONE="+2376XXXXXXXX" npm run create-admin:prod
+```env
+ADMIN_PHONE=+237694600007        # identifiant de connexion (le numéro, avec ou sans +237)
+ADMIN_FULL_NAME=Nom de l'administrateur
+ADMIN_PASSWORD=MotDePasseSolide2026   # 8 caractères minimum, lettres et chiffres
+ADMIN_EMAIL=admin@exemple.cm     # facultatif (connexion possible aussi par email)
 ```
 
-Sans `ADMIN_PASSWORD`, un mot de passe robuste est généré puis **affiché une seule fois** ; changez-le après la première connexion (Profil). Si le compte existe déjà, il est promu administrateur, et son mot de passe n'est remplacé qu'avec `ADMIN_RESET_PASSWORD=true`. Les comptes opérateurs se créent ensuite depuis **Administration → Utilisateurs**, avec un lien d'activation de 72 h.
+- Au démarrage, l'API crée ce compte s'il n'existe pas. S'il existe, elle le resynchronise : rôle administrateur, compte actif, nom, email et mot de passe sont réappliqués.
+- Pour changer le nom ou le mot de passe, modifiez les variables (Railway → Variables) puis redémarrez l'API. Les sessions ouvertes sont alors fermées.
+- Ce compte ne peut être ni rétrogradé ni désactivé depuis l'administration. Son mot de passe ne se change pas dans l'application, car ce sont les variables qui font foi.
+- Le démarrage est refusé si la configuration est invalide (numéro incorrect, mot de passe trop faible). Le mot de passe n'apparaît jamais dans les journaux.
+- Connexion : page `/connexion`, avec le numéro (ou l'email) et le mot de passe.
 
----
+Alternative ponctuelle, sans variables : `ADMIN_FULL_NAME=… ADMIN_PHONE=… npm run create-admin` (`npm run create-admin:prod` après build). Le mot de passe est alors généré et affiché une seule fois.
+
+Les comptes opérateurs se créent depuis **Administration → Utilisateurs**, avec un lien d'activation de 72 h.
 
 ## 8. Paiement Fapshi
 
@@ -248,8 +257,8 @@ L'intégration suit l'API documentée par Fapshi (https://docs.fapshi.com) :
 ### Backend sur Railway
 1. Créez un projet Railway avec un service **PostgreSQL**.
 2. Ajoutez un service depuis ce dépôt avec **Root Directory = `backend`**. `backend/railway.json` utilise le `Dockerfile` (Node 22 + LibreOffice Writer). Le démarrage applique les migrations (`prisma migrate deploy`) puis lance l'API ; le contrôle de santé est `/api/health`.
-3. Variables : `DATABASE_URL=${{Postgres.DATABASE_URL}}`, `NODE_ENV=production`, `APP_SECRET`, `FRONTEND_URL=https://<site>.vercel.app`, `API_PUBLIC_URL=https://<api>.up.railway.app`, `TRUST_PROXY=2`, les variables `STORAGE_DRIVER`/`S3_*`, les variables Fapshi et éventuellement SMTP.
-4. Initialisez une seule fois depuis un shell Railway : `npm run db:seed:prod`, puis `npm run create-admin:prod`.
+3. Variables : `DATABASE_URL=${{Postgres.DATABASE_URL}}`, `NODE_ENV=production`, `APP_SECRET`, `ADMIN_PHONE`, `ADMIN_FULL_NAME`, `ADMIN_PASSWORD`, `FRONTEND_URL=https://<site>.vercel.app`, `API_PUBLIC_URL=https://<api>.up.railway.app`, `TRUST_PROXY=2`, les variables `STORAGE_DRIVER`/`S3_*`, les variables Fapshi et éventuellement SMTP.
+4. Initialisez une seule fois les données de référence depuis un shell Railway : `npm run db:seed:prod`. L'administrateur est créé automatiquement à partir des variables `ADMIN_*`.
 5. Facultatif : un second service avec la même image et la commande `node dist/src/worker.js` pour les conversions lourdes. Dans ce cas, mettez `WORKER_INLINE=false` sur l'API.
 6. Stockage local sur Railway : montez un volume sur `/app/storage`. S3 reste recommandé.
 
@@ -291,22 +300,26 @@ createdb -O printer printer_test
 cd backend && npm test          # TEST_DATABASE_URL permet de cibler une autre base
 
 # Frontend : parcours E2E (API + frontend démarrés, base initialisée, admin créé)
-cd backend && PAYMENT_PROVIDER=mock DISABLE_RATE_LIMIT=true npm run dev
+cd backend && PAYMENT_PROVIDER=mock DISABLE_RATE_LIMIT=true ADMIN_PHONE=6XXXXXXXX ADMIN_FULL_NAME="Admin" ADMIN_PASSWORD=... npm run dev
 cd frontend && npm run build && BACKEND_URL=http://localhost:4000 npm start
 E2E_ADMIN_PHONE=6XXXXXXXX E2E_ADMIN_PASSWORD=... npm run test:e2e
 ```
 
-Couverture backend (73 tests) :
+Couverture backend (80 tests) :
 - tarification (N&B, couleur, recto verso distinct, feuilles et faces, exemplaires, reliures, combinaisons non configurées) ;
 - analyse des fichiers (multipage, images, extensions falsifiées, PDF corrompu ou avec JavaScript, DOCX avec macros, conversion LibreOffice) ;
 - commandes multi-documents (30 fichiers, montants client ignorés, instantané figé, livraison à confirmer) ;
 - paiements (confirmation vérifiée, webhooks dupliqués et concurrents, montant incohérent, double paiement, webhook authentifié et revérifié, adaptateur Fapshi) ;
 - commandes groupées (modes A et B, isolation des délégués, paiement espèces vérifié par l'admin, règles de production) ;
+- validation par le paiement : brouillon non visible en production, « payer et valider », refus sans figer si le paiement est impossible, changement de tarif signalé ;
+- administrateur défini par variables (création, synchronisation, connexion) ;
 - production et transitions de statut, accès aux fichiers et par rôle, suivi public, devis, rappels et conservation, authentification.
 
 Les parcours E2E Playwright (mobile et bureau) couvrent :
 - les pages publiques ;
-- la commande complète (téléversement, analyse, options, prix, confirmation, paiement simulé, code de retrait) ;
+- la commande complète (téléversement, analyse, options, prix, « payer et valider », paiement simulé, code de retrait) ;
+- le brouillon enregistré puis validé plus tard ;
+- la navigation mobile (barre basse masquée pendant la commande) ;
 - le refus de format ;
 - les pages d'administration ;
 - le lancement en production ;
@@ -318,6 +331,7 @@ Les parcours E2E Playwright (mobile et bureau) couvrent :
 
 | Élément | Où | Statut par défaut |
 | --- | --- | --- |
+| Compte administrateur (`ADMIN_PHONE`, `ADMIN_FULL_NAME`, `ADMIN_PASSWORD`) | Railway | À définir |
 | Identifiants Fapshi (`apiuser`, `apikey`) et passage en `live` | Railway | Non fournis : simulateur en développement |
 | Webhook Fapshi + `FAPSHI_WEBHOOK_SECRET` | Tableau de bord Fapshi + Railway | À créer |
 | Activation du paiement direct | Support Fapshi | Désactivé (le lien de paiement fonctionne sans) |

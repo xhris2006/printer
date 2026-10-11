@@ -94,7 +94,7 @@ export default function DelegateGroupPage() {
         </div>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-2 sm:gap-4 lg:grid-cols-4">
         <StatCard icon={Plus} label="Contributions" value={t.contributionsCount} hint={`${t.contributorsCount} participant(s)`} />
         <StatCard icon={Copy} label="Documents / pages" value={`${t.documentsCount} / ${t.pagesCount}`} tone="violet" />
         <StatCard icon={Banknote} label="Montant total" value={fcfa(t.totalAmount)} tone="amber" hint={`${t.confirmedCount} commande(s) confirmée(s)`} />

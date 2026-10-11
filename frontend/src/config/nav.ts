@@ -17,7 +17,8 @@ import {
   UsersRound,
   Wallet,
 } from "lucide-react";
-import type { NavItem } from "@/components/layout/dashboard-shell";
+import { Home } from "lucide-react";
+import type { MobileNavItem, NavItem } from "@/components/layout/dashboard-shell";
 
 export const customerNav: NavItem[] = [
   { href: "/espace", label: "Tableau de bord", icon: LayoutDashboard, exact: true },
@@ -46,3 +47,20 @@ export const adminNav: NavItem[] = [
   { href: "/admin/audit", label: "Journal d'audit", icon: ScrollText, roles: ["ADMIN"] },
   { href: "/espace", label: "Mon espace client", icon: UserRound },
 ];
+
+export const customerMobileNav: MobileNavItem[] = [
+  { href: "/espace", label: "Accueil", icon: Home, exact: true },
+  { href: "/espace/commandes", label: "Commandes", icon: ClipboardList },
+  { href: "/espace/commandes/nouvelle", label: "Commander", icon: PlusCircle, primary: true },
+  { href: "/espace/notifications", label: "Alertes", icon: Bell },
+];
+
+export const adminMobileNav: MobileNavItem[] = [
+  { href: "/admin", label: "Accueil", icon: LayoutDashboard, exact: true },
+  { href: "/admin/production", label: "Production", icon: Factory },
+  { href: "/admin/commandes", label: "Commandes", icon: ClipboardList },
+  { href: "/admin/groupes", label: "Groupes", icon: UsersRound },
+];
+
+/** Parcours en plein écran sur mobile (barre de navigation basse masquée). */
+export const focusRoutes = ["/espace/commandes/nouvelle"];

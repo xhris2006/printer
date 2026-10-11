@@ -17,9 +17,13 @@ import {
   updateProfileSchema,
 } from "./auth.schemas";
 import { createPasswordResetToken, findUserByIdentifier, publicUser } from "./auth.service";
+import { isEnvManagedAdmin } from "./admin-bootstrap";
 import { clearSessionCookie, createSession, destroySession, destroyUserSessions, setSessionCookie } from "./session";
 
 export const authRouter = Router();
+
+const ENV_ADMIN_MESSAGE =
+  "Ce compte administrateur est géré par les variables d'environnement : modifiez ADMIN_PASSWORD sur le serveur puis redémarrez l'API.";
 
 authRouter.post("/register", authLimiter, async (req, res) => {
   const input = registerSchema.parse(req.body);
@@ -111,6 +115,7 @@ authRouter.patch("/me", requireAuth, async (req, res) => {
 authRouter.post("/change-password", requireAuth, authLimiter, async (req, res) => {
   const me = currentUser(req);
   const input = changePasswordSchema.parse(req.body);
+  if (isEnvManagedAdmin(me)) throw badRequest(ENV_ADMIN_MESSAGE, "ENV_MANAGED_ACCOUNT");
   if (!(await verifyPassword(me.passwordHash, input.currentPassword))) {
     throw badRequest("Mot de passe actuel incorrect.", "INVALID_PASSWORD");
   }
@@ -149,6 +154,8 @@ authRouter.post("/reset-password", passwordResetLimiter, async (req, res) => {
   if (!record || record.usedAt || record.expiresAt < new Date()) {
     throw badRequest("Lien invalide ou expiré. Demandez un nouveau lien.", "INVALID_TOKEN");
   }
+  const target = await prisma.user.findUniqueOrThrow({ where: { id: record.userId } });
+  if (isEnvManagedAdmin(target)) throw badRequest(ENV_ADMIN_MESSAGE, "ENV_MANAGED_ACCOUNT");
   await prisma.$transaction([
     prisma.passwordResetToken.update({ where: { id: record.id }, data: { usedAt: new Date() } }),
     prisma.user.update({ where: { id: record.userId }, data: { passwordHash: await hashPassword(input.password) } }),

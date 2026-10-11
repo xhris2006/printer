@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Copy, Download, KeyRound, MapPin, PencilLine, RotateCcw, Truck, Users, XCircle } from "lucide-react";
+import { Copy, Download, KeyRound, MapPin, RotateCcw, Truck, Users, XCircle } from "lucide-react";
 import { toast } from "sonner";
 import { api, errorMessage } from "@/lib/api";
 import { fcfa, formatDate } from "@/lib/format";
@@ -17,6 +17,7 @@ import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
 import { OrderStatusBadge, PaymentStateBadge, PaymentStatusBadge } from "@/components/order/status-badge";
 import { StatusTimeline } from "@/components/order/status-timeline";
 import { PaymentPanel } from "@/components/order/payment-panel";
+import { DraftCheckoutCard } from "@/components/order/checkout";
 import { WhatsAppIcon } from "@/components/layout/whatsapp-button";
 
 export default function OrderDetailPage() {
@@ -66,10 +67,12 @@ export default function OrderDetailPage() {
             </Link>{" "}
             / {order.reference}
           </p>
-          <h1 className="mt-1 flex flex-wrap items-center gap-2 text-2xl font-bold tracking-tight">
+          <h1 className="mt-1 flex flex-wrap items-center gap-2 text-xl font-bold tracking-tight sm:text-2xl">
             Commande {order.reference} <OrderStatusBadge status={order.status} /> <PaymentStateBadge state={order.paymentStatus} credit={order.creditApproved} />
           </h1>
-          <p className="text-sm text-muted-foreground">Passée le {formatDate(order.createdAt, true)}</p>
+          <p className="text-sm text-muted-foreground">
+            {order.status === "DRAFT" ? "Brouillon créé le" : "Passée le"} {formatDate(order.createdAt, true)}
+          </p>
         </div>
         <div className="flex flex-wrap gap-2">
           <Button variant="outline" size="sm" asChild>
@@ -93,35 +96,28 @@ export default function OrderDetailPage() {
               size="sm"
               className="text-destructive"
               onClick={() => {
-                if (window.confirm("Annuler cette commande ?")) cancel.mutate();
+                if (window.confirm(order.status === "DRAFT" ? "Supprimer ce brouillon ?" : "Annuler cette commande ?")) cancel.mutate();
               }}
               loading={cancel.isPending}
             >
-              <XCircle /> Annuler
+              <XCircle /> {order.status === "DRAFT" ? "Supprimer le brouillon" : "Annuler"}
             </Button>
           )}
         </div>
       </div>
 
-      {order.status === "DRAFT" && (
-        <Alert
-          variant="info"
-          title="Brouillon non confirmé"
-          action={
-            <Button size="sm" asChild>
-              <Link href={`/espace/commandes/nouvelle?brouillon=${order.id}`}>
-                <PencilLine /> Reprendre
-              </Link>
-            </Button>
-          }
-        >
-          Vérifiez vos options puis confirmez la commande pour passer au paiement.
+      {order.status === "PENDING_PAYMENT" && (
+        <Alert variant="warning" title="Commande non validée">
+          {order.total === null
+            ? "Notre équipe confirme les frais de livraison. Vous serez notifié pour payer : la commande sera validée dès réception du paiement."
+            : "Elle sera validée et imprimée dès que le paiement sera confirmé."}
         </Alert>
       )}
       {order.status === "CANCELLED" && <Alert variant="error" title="Commande annulée">{order.cancelReason}</Alert>}
 
       <div className="grid gap-6 lg:grid-cols-[1fr_340px]">
         <div className="space-y-6">
+          {order.status === "DRAFT" && <DraftCheckoutCard order={order} />}
           {order.status === "PENDING_PAYMENT" && <PaymentPanel order={order} />}
 
           {(paid || order.creditApproved) && order.pickupCode && order.status !== "COMPLETED" && (
@@ -152,8 +148,8 @@ export default function OrderDetailPage() {
                 <THead>
                   <TR>
                     <TH>{order.type === "SERVICE" ? "Prestation" : "Document"}</TH>
-                    {hasPrintItems && <TH className="text-right">Pages</TH>}
-                    {hasPrintItems && <TH className="text-right">Feuilles</TH>}
+                    {hasPrintItems && <TH className="hidden text-right sm:table-cell">Pages</TH>}
+                    {hasPrintItems && <TH className="hidden text-right sm:table-cell">Feuilles</TH>}
                     <TH className="text-right">Montant</TH>
                   </TR>
                 </THead>
@@ -161,12 +157,17 @@ export default function OrderDetailPage() {
                   {order.items.map((item) => (
                     <TR key={item.id}>
                       <TD>
-                        <p className="max-w-[320px] truncate font-medium">{item.documentName ?? item.description}</p>
+                        <p className="max-w-[220px] truncate font-medium sm:max-w-[320px]">{item.documentName ?? item.description}</p>
+                        {item.kind === "PRINT" && (
+                          <p className="text-xs text-muted-foreground sm:hidden">
+                            {item.pageCount} p. · {item.sheets} feuille(s)
+                          </p>
+                        )}
                         <p className="text-xs text-muted-foreground">{item.options ? optionsSummary(item.options) : `${item.copies} × ${fcfa(item.unitPrice)}`}</p>
                         {item.pageCountSource === "CUSTOMER_DECLARED" && <p className="text-xs text-amber-700">Pages déclarées : vérification avant impression</p>}
                       </TD>
-                      {hasPrintItems && <TD className="text-right">{item.kind === "PRINT" ? item.pageCount : "—"}</TD>}
-                      {hasPrintItems && <TD className="text-right">{item.kind === "PRINT" ? item.sheets : "—"}</TD>}
+                      {hasPrintItems && <TD className="hidden text-right sm:table-cell">{item.kind === "PRINT" ? item.pageCount : "—"}</TD>}
+                      {hasPrintItems && <TD className="hidden text-right sm:table-cell">{item.kind === "PRINT" ? item.sheets : "—"}</TD>}
                       <TD className="text-right font-semibold">{fcfa(item.lineTotal)}</TD>
                     </TR>
                   ))}

@@ -6,7 +6,7 @@ function Input({ className, type, ...props }: React.ComponentProps<"input">) {
     <input
       type={type}
       className={cn(
-        "flex h-10 w-full min-w-0 rounded-lg border border-input bg-white px-3 py-2 text-sm shadow-xs transition-[color,box-shadow] outline-none placeholder:text-muted-foreground/70 focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/25 disabled:cursor-not-allowed disabled:opacity-60 aria-invalid:border-destructive aria-invalid:ring-destructive/20",
+        "flex h-11 w-full min-w-0 rounded-lg border border-input bg-white px-3 py-2 text-base shadow-xs sm:h-10 sm:text-sm transition-[color,box-shadow] outline-none placeholder:text-muted-foreground/70 focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/25 disabled:cursor-not-allowed disabled:opacity-60 aria-invalid:border-destructive aria-invalid:ring-destructive/20",
         className,
       )}
       {...props}
@@ -18,7 +18,7 @@ function Textarea({ className, ...props }: React.ComponentProps<"textarea">) {
   return (
     <textarea
       className={cn(
-        "flex min-h-20 w-full rounded-lg border border-input bg-white px-3 py-2 text-sm shadow-xs outline-none placeholder:text-muted-foreground/70 focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/25 disabled:opacity-60 aria-invalid:border-destructive",
+        "flex min-h-20 w-full rounded-lg border border-input bg-white px-3 py-2 text-base shadow-xs sm:text-sm outline-none placeholder:text-muted-foreground/70 focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/25 disabled:opacity-60 aria-invalid:border-destructive",
         className,
       )}
       {...props}
@@ -30,7 +30,7 @@ function NativeSelect({ className, children, ...props }: React.ComponentProps<"s
   return (
     <select
       className={cn(
-        "flex h-10 w-full rounded-lg border border-input bg-white px-3 py-2 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/25 disabled:opacity-60",
+        "flex h-11 w-full rounded-lg border border-input bg-white px-3 py-2 text-base shadow-xs sm:h-10 sm:text-sm outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/25 disabled:opacity-60",
         className,
       )}
       {...props}

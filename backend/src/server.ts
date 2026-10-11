@@ -6,8 +6,10 @@ import { startWorker, type WorkerHandle } from "./jobs/queue";
 import { startScheduler } from "./jobs/scheduler";
 import { getPaymentProvider } from "./modules/payments/payments.service";
 import { isConverterAvailable } from "./modules/documents/converter";
+import { bootstrapEnvAdmin } from "./modules/auth/admin-bootstrap";
 
 async function main() {
+  await bootstrapEnvAdmin();
   const app = createApp();
   const server = app.listen(env.PORT, () => {
     logger.info({ port: env.PORT, env: env.NODE_ENV }, "API Print & Secrétariat démarrée");

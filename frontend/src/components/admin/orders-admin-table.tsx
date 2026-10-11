@@ -9,6 +9,34 @@ import { OrderStatusBadge, PaymentStateBadge } from "@/components/order/status-b
 
 export function OrdersAdminTable({ rows }: { rows: AdminOrderRow[] }) {
   return (
+    <>
+    <ul className="space-y-2 md:hidden">
+      {rows.map((o) => (
+        <li key={o.id}>
+          <Link href={`/admin/commandes/${o.id}`} className="block rounded-lg border bg-white p-3 active:bg-slate-50">
+            <div className="flex items-center justify-between gap-2">
+              <span className="font-mono text-xs font-semibold text-primary">{o.reference}</span>
+              <OrderStatusBadge status={o.status} />
+            </div>
+            <p className="mt-1 text-sm font-medium">{o.customer.fullName}</p>
+            <p className="text-xs text-muted-foreground">
+              {o.itemsCount} doc. · {o.pagesCount} p. · {o.fulfillmentMethod === "DELIVERY" ? "Livraison" : "Retrait"}
+              {o.group ? ` · ${o.group.code}` : ""}
+            </p>
+            <div className="mt-2 flex items-center justify-between">
+              <PaymentStateBadge state={o.paymentStatus} credit={o.creditApproved} />
+              <span className="text-sm font-semibold">{fcfa(o.total)}</span>
+            </div>
+            {(o.needsPageCheck || o.overduePickup) && (
+              <p className="mt-1 flex items-center gap-1 text-xs text-amber-700">
+                <AlertTriangle className="size-3" /> {o.needsPageCheck ? "Pages à vérifier" : "Retrait en retard"}
+              </p>
+            )}
+          </Link>
+        </li>
+      ))}
+    </ul>
+    <div className="hidden md:block">
     <Table>
       <THead>
         <TR>
@@ -62,5 +90,7 @@ export function OrdersAdminTable({ rows }: { rows: AdminOrderRow[] }) {
         ))}
       </TBody>
     </Table>
+    </div>
+    </>
   );
 }

@@ -9,7 +9,7 @@ import type { User } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Field, Input } from "@/components/ui/input";
-import { PageHeader, Spinner } from "@/components/ui/feedback";
+import { Alert, PageHeader, Spinner } from "@/components/ui/feedback";
 import { Switch } from "@/components/ui/choice";
 
 export default function ProfilePage() {
@@ -97,6 +97,11 @@ function ProfileForms({ user }: { user: User }) {
             <CardDescription>Au moins 8 caractères, lettres et chiffres.</CardDescription>
           </CardHeader>
           <CardContent>
+            {user.managedByEnv ? (
+              <Alert variant="info" title="Compte géré par la configuration du serveur">
+                Le nom, le numéro et le mot de passe de ce compte administrateur sont définis par les variables ADMIN_FULL_NAME, ADMIN_PHONE et ADMIN_PASSWORD. Modifiez-les sur l&apos;hébergeur puis redémarrez l&apos;API.
+              </Alert>
+            ) : (
             <form onSubmit={changePassword} className="space-y-4">
               <Field label="Mot de passe actuel" htmlFor="cp">
                 <Input id="cp" type="password" autoComplete="current-password" value={pwd.currentPassword} onChange={(e) => setPwd({ ...pwd, currentPassword: e.target.value })} required />
@@ -108,6 +113,7 @@ function ProfileForms({ user }: { user: User }) {
                 Changer le mot de passe
               </Button>
             </form>
+            )}
           </CardContent>
         </Card>
       </div>

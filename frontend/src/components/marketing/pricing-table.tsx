@@ -27,7 +27,23 @@ export function PricingTable() {
           <CardDescription>Le tarif recto verso est un tarif à part entière : il ne s&apos;ajoute pas au tarif noir & blanc ou couleur.</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="overflow-x-auto">
+          <ul className="divide-y text-sm sm:hidden">
+            {data.pricing.rules.map((r) => (
+              <li key={`m-${r.paperFormat}-${r.colorMode}-${r.sides}`} className="flex items-center justify-between gap-3 py-2.5">
+                <span>
+                  <span className="font-semibold">{r.paperFormat}</span> · {COLOR_LABELS[r.colorMode]} · {SIDES_LABELS[r.sides]}
+                </span>
+                {r.available && r.unitPrice !== null ? (
+                  <span className="text-right font-semibold whitespace-nowrap">
+                    {fcfa(r.unitPrice)} <span className="block text-[11px] font-normal text-muted-foreground">{unit(r.unit)}</span>
+                  </span>
+                ) : (
+                  <Badge variant="muted">Sur demande</Badge>
+                )}
+              </li>
+            ))}
+          </ul>
+          <div className="hidden overflow-x-auto sm:block">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b text-left text-xs text-muted-foreground">

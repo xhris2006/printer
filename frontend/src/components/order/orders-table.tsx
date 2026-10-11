@@ -6,6 +6,12 @@ import { Button } from "@/components/ui/button";
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
 import { OrderStatusBadge } from "./status-badge";
 
+function actionLabel(o: OrderSummary) {
+  if (o.status === "DRAFT") return "Valider";
+  if (o.status === "PENDING_PAYMENT" && o.total !== null) return "Payer";
+  return "Voir";
+}
+
 export function OrdersTable({ orders }: { orders: OrderSummary[] }) {
   return (
     <>
@@ -13,15 +19,18 @@ export function OrdersTable({ orders }: { orders: OrderSummary[] }) {
       <ul className="space-y-2 md:hidden">
         {orders.map((o) => (
           <li key={o.id}>
-            <Link href={`/espace/commandes/${o.id}`} className="block rounded-lg border bg-white p-3 hover:border-primary/40">
+            <Link href={`/espace/commandes/${o.id}`} className="block rounded-lg border bg-white p-3 active:bg-slate-50 hover:border-primary/40">
               <div className="flex items-center justify-between gap-2">
                 <span className="font-mono text-xs font-semibold">{o.reference}</span>
                 <OrderStatusBadge status={o.status} />
               </div>
               <p className="mt-1 truncate text-sm">{o.firstDocument ?? ORDER_TYPE_LABELS[o.type]}{o.itemsCount > 1 ? ` + ${o.itemsCount - 1}` : ""}</p>
-              <div className="mt-1 flex justify-between text-xs text-muted-foreground">
+              <div className="mt-1 flex items-center justify-between text-xs text-muted-foreground">
                 <span>{formatDate(o.createdAt)}</span>
-                <span className="font-semibold text-slate-800">{fcfa(o.total)}</span>
+                <span className="flex items-center gap-2">
+                  <span className="font-semibold text-slate-800">{fcfa(o.total)}</span>
+                  {actionLabel(o) !== "Voir" && <span className="rounded-md bg-primary px-2 py-1 text-[11px] font-semibold text-white">{actionLabel(o)}</span>}
+                </span>
               </div>
             </Link>
           </li>
@@ -58,8 +67,8 @@ export function OrdersTable({ orders }: { orders: OrderSummary[] }) {
                 <TD className="text-muted-foreground">{formatDate(o.createdAt)}</TD>
                 <TD className="text-right font-semibold">{fcfa(o.total)}</TD>
                 <TD className="text-right">
-                  <Button size="sm" variant="outline" asChild>
-                    <Link href={`/espace/commandes/${o.id}`}>Voir</Link>
+                  <Button size="sm" variant={o.status === "DRAFT" || o.status === "PENDING_PAYMENT" ? "default" : "outline"} asChild>
+                    <Link href={`/espace/commandes/${o.id}`}>{actionLabel(o)}</Link>
                   </Button>
                 </TD>
               </TR>

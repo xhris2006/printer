@@ -71,7 +71,7 @@ export function PageHeader({ title, description, actions, className }: { title: 
   return (
     <div className={cn("flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between", className)}>
       <div className="space-y-1">
-        <h1 className="text-2xl font-bold tracking-tight text-slate-900">{title}</h1>
+        <h1 className="text-xl font-bold tracking-tight text-slate-900 sm:text-2xl">{title}</h1>
         {description && <div className="text-sm text-muted-foreground">{description}</div>}
       </div>
       {actions && <div className="flex flex-wrap gap-2">{actions}</div>}
@@ -88,13 +88,13 @@ export function StatCard({ icon: Icon, label, value, tone = "blue", hint }: { ic
     red: "bg-red-50 text-red-700",
   };
   return (
-    <div className="rounded-xl border bg-white p-4 shadow-[var(--shadow-soft)]">
-      <div className={cn("mb-3 flex size-9 items-center justify-center rounded-lg", tones[tone])}>
-        <Icon className="size-[18px]" aria-hidden />
+    <div className="min-w-0 rounded-xl border bg-white p-3 shadow-[var(--shadow-soft)] sm:p-4">
+      <div className={cn("mb-2 flex size-8 items-center justify-center rounded-lg sm:mb-3 sm:size-9", tones[tone])}>
+        <Icon className="size-4 sm:size-[18px]" aria-hidden />
       </div>
-      <p className="text-xs font-medium text-muted-foreground">{label}</p>
-      <p className="mt-1 text-xl font-bold tracking-tight text-slate-900">{value}</p>
-      {hint && <p className="mt-1 text-xs text-muted-foreground">{hint}</p>}
+      <p className="text-[11px] leading-tight font-medium text-muted-foreground sm:text-xs">{label}</p>
+      <p className="mt-1 truncate text-base font-bold tracking-tight text-slate-900 sm:text-xl">{value}</p>
+      {hint && <p className="mt-1 text-[11px] text-muted-foreground sm:text-xs">{hint}</p>}
     </div>
   );
 }

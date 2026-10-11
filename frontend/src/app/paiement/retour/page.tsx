@@ -58,10 +58,10 @@ function PaymentReturn() {
             <div className="flex size-16 items-center justify-center rounded-full bg-green-100 text-green-600">
               <CheckCircle2 className="size-9" />
             </div>
-            <h1 className="text-xl font-bold">Commande envoyée !</h1>
+            <h1 className="text-xl font-bold">Commande validée !</h1>
             <p className="text-sm font-medium text-slate-700">Votre paiement de {fcfa(payment.amount)} est confirmé.</p>
             <p className="text-sm text-muted-foreground">
-              Votre commande {order.reference} part en préparation. Vous recevrez une notification à chaque étape
+              Votre commande {order.reference} est validée et part en préparation. Vous recevrez une notification à chaque étape
               {order.pickupCode ? (
                 <>
                   {" "}
@@ -77,7 +77,9 @@ function PaymentReturn() {
               <XCircle className="size-9" />
             </div>
             <h1 className="text-xl font-bold">Paiement non abouti</h1>
-            <p className="text-sm text-muted-foreground">{payment.failureReason ?? "Le paiement a été refusé ou annulé."} Aucun montant n&apos;a été validé pour cette tentative.</p>
+            <p className="text-sm text-muted-foreground">
+              {payment.failureReason ?? "Le paiement a été refusé ou annulé."} Votre commande n&apos;est pas validée : vous pouvez relancer le paiement depuis la commande.
+            </p>
           </>
         ) : (
           <>
