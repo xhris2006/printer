@@ -15,7 +15,9 @@ export function WhatsAppIcon({ className }: { className?: string }) {
 /** Bouton WhatsApp flottant (lien wa.me : aucun message n'est envoyé automatiquement). */
 export function WhatsAppButton() {
   const pathname = usePathname();
-  if (pathname.startsWith("/admin")) return null;
+  if (pathname.startsWith("/admin") || pathname.startsWith("/paiement")) return null;
+  // Dans l'espace client, l'assistance est dans le menu sur mobile (pas de bouton flottant sur le contenu)
+  const inDashboard = pathname.startsWith("/espace");
   const match = pathname.match(/^\/espace\/commandes\/([^/]+)$/);
   const message = match ? "Bonjour Print & Secrétariat, j'ai une question sur ma commande." : "Bonjour Print & Secrétariat, j'ai une question.";
   return (
@@ -23,7 +25,7 @@ export function WhatsAppButton() {
       href={whatsappLink(site.whatsapp, message)}
       target="_blank"
       rel="noopener noreferrer"
-      className="fixed right-4 bottom-4 z-40 flex items-center gap-2 rounded-full bg-[#25D366] px-4 py-3 text-sm font-semibold text-white shadow-lg shadow-green-900/20 transition hover:scale-105 hover:bg-[#1ebe5a] focus-visible:ring-4 focus-visible:ring-green-300 focus-visible:outline-none sm:right-6 sm:bottom-6"
+      className={`fixed right-4 bottom-[calc(1rem+env(safe-area-inset-bottom))] z-40 items-center gap-2 rounded-full bg-[#25D366] p-3.5 text-sm font-semibold text-white shadow-lg shadow-green-900/20 transition hover:scale-105 hover:bg-[#1ebe5a] focus-visible:ring-4 focus-visible:ring-green-300 focus-visible:outline-none sm:right-6 sm:bottom-6 sm:px-4 sm:py-3 ${inDashboard ? "hidden lg:flex" : "flex"}`}
       aria-label="Contacter l'assistance sur WhatsApp"
     >
       <WhatsAppIcon className="size-5" />

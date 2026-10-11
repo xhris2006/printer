@@ -10,7 +10,10 @@ export function TestModeBanner() {
   return (
     <div className="flex items-center justify-center gap-2 bg-amber-400 px-4 py-1.5 text-center text-xs font-semibold text-amber-950">
       <FlaskConical className="size-3.5" aria-hidden />
-      MODE TEST — paiements {data.payments.provider === "MOCK" ? "simulés (développement)" : "Fapshi sandbox"} : aucun argent réel n&apos;est encaissé.
+      <span className="sm:hidden">MODE TEST — aucun argent réel</span>
+      <span className="hidden sm:inline">
+        MODE TEST — paiements {data.payments.provider === "MOCK" ? "simulés (développement)" : "Fapshi sandbox"} : aucun argent réel n&apos;est encaissé.
+      </span>
     </div>
   );
 }

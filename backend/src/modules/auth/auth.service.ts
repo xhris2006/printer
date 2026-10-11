@@ -2,6 +2,7 @@ import type { CustomerProfile, DelegateProfile, User } from "@prisma/client";
 import { prisma } from "../../lib/prisma";
 import { normalizeCameroonPhone } from "../../lib/phone";
 import { secureToken, sha256 } from "../../lib/ids";
+import { envAdminPhone } from "../../config/env";
 
 export function findUserByIdentifier(identifier: string) {
   const value = identifier.trim();
@@ -21,6 +22,8 @@ export function publicUser(
     phone: user.phone,
     role: user.roleCode,
     isActive: user.isActive,
+    /** Compte administrateur géré par les variables d'environnement */
+    managedByEnv: envAdminPhone !== null && user.phone === envAdminPhone,
     createdAt: user.createdAt,
     delegate: user.delegateProfile
       ? {

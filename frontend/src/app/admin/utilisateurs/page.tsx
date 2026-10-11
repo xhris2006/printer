@@ -169,6 +169,7 @@ function UsersAdmin() {
                       <TD>
                         <p className="font-medium">
                           {u.fullName} {!u.isActive && <Badge variant="danger">Désactivé</Badge>}
+                          {u.managedByEnv && <Badge variant="info">Défini par variables</Badge>}
                         </p>
                         <p className="text-xs text-muted-foreground">
                           {formatPhone(u.phone)}
@@ -181,6 +182,7 @@ function UsersAdmin() {
                           aria-label="Rôle"
                           className="h-8 w-40 text-xs"
                           value={u.role}
+                          disabled={u.managedByEnv}
                           onChange={(e) => {
                             if (window.confirm(`Passer ${u.fullName} au rôle « ${ROLE_LABELS[e.target.value as Role]} » ?`)) patch(u, { role: e.target.value as Role });
                           }}
@@ -223,12 +225,16 @@ function UsersAdmin() {
                       </TD>
                       <TD className="text-right">{u.ordersCount}</TD>
                       <TD className="text-right whitespace-nowrap">
-                        <Button size="sm" variant="ghost" onClick={() => resetLink(u)}>
-                          <KeyRound /> Lien mot de passe
-                        </Button>
-                        <Button size="sm" variant="ghost" className={u.isActive ? "text-destructive" : ""} onClick={() => patch(u, { isActive: !u.isActive })}>
-                          {u.isActive ? "Désactiver" : "Réactiver"}
-                        </Button>
+                        {!u.managedByEnv && (
+                          <>
+                            <Button size="sm" variant="ghost" onClick={() => resetLink(u)}>
+                              <KeyRound /> Lien mot de passe
+                            </Button>
+                            <Button size="sm" variant="ghost" className={u.isActive ? "text-destructive" : ""} onClick={() => patch(u, { isActive: !u.isActive })}>
+                              {u.isActive ? "Désactiver" : "Réactiver"}
+                            </Button>
+                          </>
+                        )}
                       </TD>
                     </TR>
                   ))}

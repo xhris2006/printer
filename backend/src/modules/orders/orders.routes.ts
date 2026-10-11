@@ -1,11 +1,12 @@
 import { Router } from "express";
 import { z } from "zod";
 import { prisma } from "../../lib/prisma";
-import { notFound } from "../../lib/errors";
+import { badRequest, conflict, notFound, serviceUnavailable } from "../../lib/errors";
+import { formatFcfa } from "../../lib/format";
 import { paginate, pageResult, paginationSchema } from "../../lib/pagination";
 import { currentUser, requireAuth } from "../../middleware/auth";
 import { paymentLimiter } from "../../middleware/security";
-import { initiatePayment, serializePayment } from "../payments/payments.service";
+import { getPaymentProvider, initiatePayment, serializePayment } from "../payments/payments.service";
 import { orderPaymentSchema } from "../payments/payments.schemas";
 import { whatsappSupportLink } from "../notifications/whatsapp";
 import { orderInputSchema } from "./orders.schemas";
@@ -14,6 +15,7 @@ import {
   confirmOrder,
   createDraftOrder,
   getOrderDetail,
+  MIN_ONLINE_PAYMENT,
   reorder,
   serializeOrder,
   updateDraftOrder,
@@ -26,7 +28,7 @@ export const ordersRouter = Router();
 ordersRouter.use(requireAuth);
 
 const listSchema = paginationSchema.extend({
-  scope: z.enum(["active", "history", "all"]).default("all"),
+  scope: z.enum(["active", "drafts", "history", "all"]).default("all"),
 });
 
 ordersRouter.get("/", async (req, res) => {
@@ -35,8 +37,10 @@ ordersRouter.get("/", async (req, res) => {
   const where = {
     customerId: me.id,
     ...(q.scope === "active"
-      ? { status: { in: [...ACTIVE_STATUSES, "DRAFT" as const] } }
-      : q.scope === "history"
+      ? { status: { in: ACTIVE_STATUSES } }
+      : q.scope === "drafts"
+        ? { status: "DRAFT" as const }
+        : q.scope === "history"
         ? { status: { in: ["COMPLETED" as const, "CANCELLED" as const, "REFUNDED" as const] } }
         : {}),
   };
@@ -76,12 +80,13 @@ ordersRouter.get("/", async (req, res) => {
 
 ordersRouter.get("/stats", async (req, res) => {
   const me = currentUser(req);
-  const [active, completed, spent] = await Promise.all([
+  const [active, drafts, completed, spent] = await Promise.all([
     prisma.order.count({ where: { customerId: me.id, status: { in: ACTIVE_STATUSES } } }),
+    prisma.order.count({ where: { customerId: me.id, status: "DRAFT" } }),
     prisma.order.count({ where: { customerId: me.id, status: "COMPLETED" } }),
     prisma.order.aggregate({ where: { customerId: me.id, paymentStatus: "PAID" }, _sum: { amountPaid: true } }),
   ]);
-  res.json({ active, completed, totalSpent: spent._sum.amountPaid ?? 0 });
+  res.json({ active, drafts, completed, totalSpent: spent._sum.amountPaid ?? 0 });
 });
 
 ordersRouter.post("/", async (req, res) => {
@@ -125,6 +130,39 @@ ordersRouter.post("/:id/cancel", async (req, res) => {
 ordersRouter.post("/:id/reorder", async (req, res) => {
   const { draft, skipped } = await reorder(currentUser(req), param(req, "id"));
   res.status(201).json({ order: serializeOrder(draft, "owner"), skipped });
+});
+
+/**
+ * « Payer et valider » : un brouillon n'est confirmé (montants figés) qu'au moment où le
+ * client lance le paiement. La commande est validée lorsque le paiement est confirmé.
+ */
+ordersRouter.post("/:id/checkout", paymentLimiter, async (req, res) => {
+  const me = currentUser(req);
+  const id = param(req, "id");
+  const input = orderPaymentSchema.parse(req.body ?? { method: "CHECKOUT" });
+  const existing = await getOwnedOrder(me.id, id);
+  if (existing.status === "DRAFT") {
+    // Vérifications préalables : rien n'est figé si le paiement ne peut pas être lancé
+    const provider = getPaymentProvider();
+    if (!provider) throw serviceUnavailable("Le paiement en ligne n'est pas encore configuré. Contactez l'assistance.", "PAYMENTS_DISABLED");
+    if (input.method === "DIRECT" && !provider.supportsDirectPay) throw badRequest("Le paiement direct n'est pas disponible.");
+    if (existing.total === null) {
+      throw conflict("Les frais de livraison doivent d'abord être confirmés par notre équipe.", "DELIVERY_FEE_PENDING");
+    }
+    if (existing.total < MIN_ONLINE_PAYMENT) {
+      throw conflict(`Le paiement en ligne nécessite un montant minimum de ${formatFcfa(MIN_ONLINE_PAYMENT)}.`, "BELOW_MINIMUM");
+    }
+    const confirmed = await confirmOrder(me, id);
+    if (confirmed.total !== existing.total) {
+      throw conflict(
+        `Les tarifs ont été mis à jour : le nouveau total est de ${formatFcfa(confirmed.total ?? 0)}. Vérifiez puis lancez le paiement.`,
+        "PRICE_CHANGED",
+      );
+    }
+  }
+  const { payment, link } = await initiatePayment(me, id, input);
+  const order = await getOrderDetail(id);
+  res.status(201).json({ payment: serializePayment(payment), redirectUrl: link, order: serializeOrder(order, "owner") });
 });
 
 ordersRouter.post("/:id/payments", paymentLimiter, async (req, res) => {

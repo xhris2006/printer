@@ -66,7 +66,7 @@ export default function HomePage() {
             <p className="max-w-xl text-base leading-relaxed text-slate-600 sm:text-lg">
               Commandez vos impressions, mises en forme et services de secrétariat en ligne. Rapide, sécurisé et accessible depuis partout.
             </p>
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="grid grid-cols-2 gap-x-4 gap-y-5 lg:grid-cols-4">
               {FEATURES.map((f) => (
                 <div key={f.title} className="space-y-1.5">
                   <f.icon className="size-6 text-primary" aria-hidden />
@@ -86,7 +86,7 @@ export default function HomePage() {
               </Button>
             </div>
           </div>
-          <div className="relative">
+          <div className="relative pb-6 lg:pb-0">
             <ImageSlot src={site.images.hero} alt="Imprimante professionnelle et documents imprimés" className="aspect-[4/3] w-full overflow-hidden rounded-3xl" priority>
               <HeroIllustration className="h-full w-full" />
             </ImageSlot>
@@ -99,7 +99,7 @@ export default function HomePage() {
                 ))}
               </ul>
             </div>
-            <p className="absolute right-6 -bottom-2 rotate-[-6deg] text-2xl font-semibold text-slate-800 italic sm:text-3xl" style={{ fontFamily: "'Brush Script MT', 'Segoe Script', cursive" }}>
+            <p className="absolute right-4 bottom-0 rotate-[-6deg] text-xl font-semibold text-slate-800 italic sm:right-6 sm:-bottom-2 sm:text-3xl" style={{ fontFamily: "'Brush Script MT', 'Segoe Script', cursive" }}>
               Simple. Rapide. <span className="text-primary">Efficace.</span>
             </p>
           </div>

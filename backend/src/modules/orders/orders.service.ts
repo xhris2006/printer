@@ -462,11 +462,11 @@ export async function confirmOrder(user: User, orderId: string) {
         userId: user.id,
         orderId: order.id,
         type: "ORDER_CONFIRMED",
-        title: `Commande ${order.reference} enregistrée`,
+        title: `Commande ${order.reference} en attente de paiement`,
         body:
           p.totals.total === null
-            ? "Votre commande est enregistrée. Les frais de livraison seront confirmés par notre équipe avant le paiement."
-            : `Votre commande est enregistrée. Montant à régler : ${formatFcfa(p.totals.total)}. L'impression démarre après confirmation du paiement.`,
+            ? "Notre équipe confirme les frais de livraison. Vous serez notifié pour payer : la commande sera validée dès réception du paiement."
+            : `Montant à régler : ${formatFcfa(p.totals.total)}. Votre commande sera validée et imprimée dès la confirmation du paiement.`,
         link: `/espace/commandes/${order.id}`,
       },
       tx,

@@ -1,10 +1,9 @@
 "use client";
 
-import Link from "next/link";
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, ArrowRight, CheckCircle2, FolderOpen, Layers, MapPin, Truck, Users, Zap } from "lucide-react";
+import { ArrowLeft, ArrowRight, CheckCircle2, FolderOpen, Layers, MapPin, Save, Truck, Users, Zap } from "lucide-react";
 import { toast } from "sonner";
 import { api, ApiError, errorMessage } from "@/lib/api";
 import { fcfa, formatPhone, plural } from "@/lib/format";
@@ -19,7 +18,7 @@ import { Field, Input, NativeSelect, Textarea } from "@/components/ui/input";
 import { ChoiceGroup } from "@/components/ui/choice";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { PrintOptionsForm, isAvailable } from "@/components/order/print-options-form";
-import { PaymentPanel } from "@/components/order/payment-panel";
+import { CheckoutNotice, PaymentMethodPicker, checkoutLabel, checkoutMode, useCheckout, usePaymentChoice } from "@/components/order/checkout";
 import { Stepper } from "@/components/order/wizard/stepper";
 import { Dropzone } from "@/components/order/wizard/dropzone";
 import { DocumentRow } from "@/components/order/wizard/document-row";
@@ -113,8 +112,13 @@ function WizardInner({ config }: { config: PublicConfig }) {
           }
           if (o.group) setGroup({ kind: "delegate", groupId: o.group.id, name: o.group.name, code: o.group.code });
           setDraftId(o.id);
-          setOrder(o);
-          setStep(3);
+          const start = Number(params.get("etape"));
+          if (start >= 0 && start < 3 && params.get("etape") !== null) {
+            setStep(start);
+          } else {
+            setOrder(o);
+            setStep(3);
+          }
         } else if (groupId) {
           const { group: g } = await api<{ group: Group }>(`/groups/${groupId}`);
           setGroup({ kind: "delegate", groupId: g.id, name: g.name, code: g.code });
@@ -292,19 +296,13 @@ function WizardInner({ config }: { config: PublicConfig }) {
     }
   };
 
-  const confirm = async () => {
+  const [payChoice, setPayChoice] = usePaymentChoice();
+  const { run: runCheckout, loading: checkoutLoading } = useCheckout();
+  const saveDraft = () => {
     if (!order) return;
-    setBusy(true);
-    try {
-      const res = await api<{ order: Order }>(`/orders/${order.id}/confirm`, { body: {} });
-      setOrder(res.order);
-      qc.invalidateQueries({ queryKey: ["orders"] });
-      toast.success(`Commande ${res.order.reference} enregistrée.`);
-    } catch (error) {
-      toast.error(errorMessage(error));
-    } finally {
-      setBusy(false);
-    }
+    qc.invalidateQueries({ queryKey: ["orders"] });
+    toast.success("Brouillon enregistré : vous pourrez le valider plus tard depuis « Mes commandes ».");
+    router.push(`/espace/commandes/${order.id}`);
   };
 
   const goTo = (i: number) => {
@@ -320,8 +318,17 @@ function WizardInner({ config }: { config: PublicConfig }) {
 
   if (initializing) return <Spinner label="Préparation de votre commande…" />;
 
-  const confirmed = order && order.status !== "DRAFT";
   const totals = estimate.data?.totals;
+  const mode = order ? checkoutMode(order, config) : null;
+  const displayedTotal = order ? fcfa(order.total) : totals ? fcfa(totals.total) : fcfa(0);
+  const primary =
+    step < 2
+      ? { label: "Continuer", onClick: () => goTo(step + 1), disabled: step === 0 ? !step1Ok : !step2Ok, loading: false }
+      : step === 2
+        ? { label: "Voir le récapitulatif", onClick: goToReview, disabled: !step3Ok, loading: busy }
+        : order && mode
+          ? { label: checkoutLabel(mode, order.total), onClick: () => runCheckout(order, mode, payChoice), disabled: mode === "BELOW_MIN", loading: checkoutLoading !== null }
+          : null;
 
   return (
     <div className="space-y-6">
@@ -337,7 +344,7 @@ function WizardInner({ config }: { config: PublicConfig }) {
               : `Vos documents seront remis au délégué${group.pickupPointName ? ` (${group.pickupPointName})` : ""}. Vous payez uniquement votre part.`}
           </Alert>
         )}
-        {!confirmed && <Stepper current={step} onSelect={goTo} maxReachable={maxReachable} />}
+        <Stepper current={step} onSelect={goTo} maxReachable={maxReachable} />
       </div>
 
       <div className="grid gap-6 lg:grid-cols-[1fr_320px]">
@@ -549,92 +556,92 @@ function WizardInner({ config }: { config: PublicConfig }) {
             </Card>
           )}
 
-          {/* Étape 4 : récapitulatif et paiement */}
-          {step === 3 && order && (
+          {/* Étape 4 : récapitulatif, puis paiement pour valider (ou brouillon) */}
+          {step === 3 && order && mode && (
             <>
-              {confirmed ? (
-                <Card className="border-green-200">
-                  <CardContent className="flex flex-col items-center gap-3 pt-6 text-center">
-                    <div className="flex size-14 items-center justify-center rounded-full bg-green-100 text-green-600">
-                      <CheckCircle2 className="size-8" />
+              <Card>
+                <CardHeader>
+                  <CardTitle>4. Récapitulatif</CardTitle>
+                  <CardDescription>Montants calculés par nos serveurs. Ils sont figés au moment du paiement.</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <ul className="divide-y rounded-lg border">
+                    {order.items.map((i) => (
+                      <li key={i.id} className="flex items-start justify-between gap-3 p-3 text-sm">
+                        <div className="min-w-0">
+                          <p className="truncate font-medium">{i.documentName}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {i.pageCount} p. · {i.sheets} feuille(s) · {i.options ? optionsSummary(i.options) : ""}
+                          </p>
+                        </div>
+                        <span className="font-semibold whitespace-nowrap">{fcfa(i.lineTotal)}</span>
+                      </li>
+                    ))}
+                  </ul>
+                  <div className="space-y-1.5 text-sm">
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Remise</span>
+                      <span className="text-right font-medium">
+                        {order.fulfillmentMethod === "DELIVERY" ? `Livraison — ${order.delivery?.quarter}` : `Retrait — ${order.pickupPoint?.name ?? ""}`}
+                      </span>
                     </div>
-                    <h2 className="text-xl font-bold">Commande {order.reference} enregistrée !</h2>
-                    <p className="max-w-md text-sm text-muted-foreground">
-                      Votre commande est en attente de paiement. L&apos;impression démarre dès que le paiement est confirmé.
-                    </p>
-                    <Button variant="outline" asChild>
-                      <Link href={`/espace/commandes/${order.id}`}>Voir le détail de la commande</Link>
-                    </Button>
-                  </CardContent>
-                </Card>
-              ) : (
-                <Card>
-                  <CardHeader>
-                    <CardTitle>4. Récapitulatif</CardTitle>
-                    <CardDescription>Montants calculés par nos serveurs. Ils seront figés à la confirmation.</CardDescription>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    <ul className="divide-y rounded-lg border">
-                      {order.items.map((i) => (
-                        <li key={i.id} className="flex items-start justify-between gap-3 p-3 text-sm">
-                          <div className="min-w-0">
-                            <p className="truncate font-medium">{i.documentName}</p>
-                            <p className="text-xs text-muted-foreground">
-                              {i.pageCount} p. · {i.sheets} feuille(s) · {i.options ? optionsSummary(i.options) : ""}
-                            </p>
-                          </div>
-                          <span className="font-semibold whitespace-nowrap">{fcfa(i.lineTotal)}</span>
-                        </li>
-                      ))}
-                    </ul>
-                    <div className="grid gap-2 text-sm sm:grid-cols-2">
-                      <div className="rounded-lg bg-slate-50 p-3">
-                        <p className="text-xs text-muted-foreground">Remise</p>
-                        <p className="font-medium">
-                          {order.fulfillmentMethod === "DELIVERY" ? `Livraison — ${order.delivery?.quarter}` : `Retrait — ${order.pickupPoint?.name ?? ""}`}
-                        </p>
+                    {order.fulfillmentMethod === "DELIVERY" && (
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Livraison</span>
+                        <span className="font-medium">{fcfa(order.deliveryFee)}</span>
                       </div>
-                      <div className="rounded-lg bg-slate-50 p-3">
-                        <p className="text-xs text-muted-foreground">Mode de paiement</p>
-                        <p className="font-medium">{config.payments.enabled ? "Fapshi — Mobile Money / Orange Money" : "Paiement en ligne indisponible"}</p>
-                      </div>
+                    )}
+                    <div className="flex justify-between border-t pt-2 text-base font-bold">
+                      <span>Total</span>
+                      <span className="text-primary">{fcfa(order.total)}</span>
                     </div>
-                    {order.notes && <p className="text-sm text-muted-foreground">Remarques : {order.notes}</p>}
-                    {order.total === null && <Alert variant="warning">Les frais de livraison seront confirmés par notre équipe. Vous pourrez payer dès leur validation.</Alert>}
-                    <Alert variant="info">Statut du paiement : non payé. La commande ne sera imprimée qu&apos;après confirmation du paiement.</Alert>
-                  </CardContent>
-                </Card>
-              )}
-              {confirmed && order.status === "PENDING_PAYMENT" && <PaymentPanel order={order} />}
+                  </div>
+                  {order.notes && <p className="text-sm text-muted-foreground">Remarques : {order.notes}</p>}
+                </CardContent>
+              </Card>
+              <Card className="border-primary/30">
+                <CardHeader>
+                  <CardTitle>Paiement et validation</CardTitle>
+                  <CardDescription>La commande est validée et part en impression uniquement après paiement.</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  {config.payments.testMode && mode === "PAY" && <Alert variant="warning" title="Mode test">Aucun argent réel ne sera prélevé.</Alert>}
+                  {mode === "PAY" && <PaymentMethodPicker value={payChoice} onChange={setPayChoice} config={config} />}
+                  <CheckoutNotice mode={mode} config={config} />
+                  <Button variant="outline" size="lg" className="w-full" onClick={saveDraft} disabled={checkoutLoading !== null}>
+                    <Save /> Enregistrer en brouillon
+                  </Button>
+                  <p className="text-center text-xs text-muted-foreground">Vous pourrez le reprendre et le valider plus tard depuis « Mes commandes ».</p>
+                </CardContent>
+              </Card>
             </>
           )}
 
-          {!confirmed && (
-            <div className="flex items-center justify-between gap-3">
-              <Button variant="ghost" onClick={() => goTo(step - 1)} disabled={step === 0 || busy}>
-                <ArrowLeft /> Retour
+          {/* Barre d'action : collante en bas de l'écran sur mobile, en ligne sur ordinateur */}
+          <div className="sticky bottom-0 z-30 -mx-4 border-t bg-white/95 px-4 pt-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] shadow-[0_-6px_16px_rgb(15_23_42/0.06)] backdrop-blur sm:static sm:mx-0 sm:border-0 sm:bg-transparent sm:p-0 sm:shadow-none sm:backdrop-blur-none">
+            <div className="flex items-center gap-3">
+              <Button variant="ghost" onClick={() => goTo(step - 1)} disabled={step === 0 || busy || checkoutLoading !== null} className="px-2 sm:px-4" aria-label="Étape précédente">
+                <ArrowLeft /> <span className="hidden sm:inline">Retour</span>
               </Button>
-              {step < 2 && (
-                <Button onClick={() => goTo(step + 1)} disabled={step === 0 ? !step1Ok : !step2Ok}>
-                  Continuer <ArrowRight />
-                </Button>
-              )}
-              {step === 2 && (
-                <Button onClick={goToReview} disabled={!step3Ok} loading={busy}>
-                  Voir le récapitulatif <ArrowRight />
-                </Button>
-              )}
-              {step === 3 && order && (
-                <Button size="lg" onClick={confirm} loading={busy}>
-                  Confirmer la commande
+              {/* À l'étape 4, le montant figure déjà dans le bouton de paiement */}
+              <div className={`min-w-0 flex-1 lg:hidden ${step === 3 ? "hidden" : ""}`}>
+                <p className="truncate text-[11px] leading-tight text-muted-foreground">
+                  {order ? "Total" : "Total estimé"} · {plural(docs.length, "doc.", "doc.")} · {totals?.totalPages ?? 0} p.
+                </p>
+                <p className={`truncate text-lg leading-tight font-bold text-primary ${estimate.isFetching ? "opacity-60" : ""}`}>{displayedTotal}</p>
+              </div>
+              <div className={`flex-1 ${step === 3 ? "hidden sm:block" : "hidden lg:block"}`} />
+              {primary && (
+                <Button size="lg" onClick={primary.onClick} disabled={primary.disabled} loading={primary.loading} className={`px-4 sm:px-6 ${step === 3 ? "flex-1 sm:flex-none" : "shrink-0"}`}>
+                  {primary.label} {step < 3 && <ArrowRight />}
                 </Button>
               )}
             </div>
-          )}
+          </div>
         </div>
 
         {/* Récapitulatif latéral */}
-        <aside className="lg:sticky lg:top-20 lg:self-start">
+        <aside className="hidden lg:sticky lg:top-20 lg:block lg:self-start">
           <Card>
             <CardHeader>
               <CardTitle>Récapitulatif de la commande</CardTitle>

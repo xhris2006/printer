@@ -1,25 +1,30 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { Suspense, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { ClipboardList, Plus } from "lucide-react";
 import { api } from "@/lib/api";
 import type { OrderSummary, Paginated } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { EmptyState, ErrorState, PageHeader, Skeleton } from "@/components/ui/feedback";
+import { EmptyState, ErrorState, PageHeader, Skeleton, Spinner } from "@/components/ui/feedback";
 import { OrdersTable } from "@/components/order/orders-table";
 import { Pagination, Tabs } from "@/components/ui/navigation";
 
 const SCOPES = [
   { value: "active", label: "En cours" },
+  { value: "drafts", label: "Brouillons" },
   { value: "history", label: "Historique" },
   { value: "all", label: "Toutes" },
 ] as const;
 
-export default function OrdersPage() {
-  const [scope, setScope] = useState<(typeof SCOPES)[number]["value"]>("active");
+type Scope = (typeof SCOPES)[number]["value"];
+
+function OrdersList() {
+  const initial = useSearchParams().get("scope");
+  const [scope, setScope] = useState<Scope>(SCOPES.some((s) => s.value === initial) ? (initial as Scope) : "active");
   const [page, setPage] = useState(1);
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: ["orders", scope, page],
@@ -59,10 +64,22 @@ export default function OrdersPage() {
               <Pagination page={data.page} pageCount={data.pageCount} onChange={setPage} />
             </>
           ) : (
-            <EmptyState icon={ClipboardList} title="Aucune commande" description={scope === "active" ? "Vous n'avez aucune commande en cours." : "Aucune commande dans cette catégorie."} />
+            <EmptyState
+              icon={ClipboardList}
+              title={scope === "drafts" ? "Aucun brouillon" : "Aucune commande"}
+              description={scope === "active" ? "Vous n'avez aucune commande en cours." : scope === "drafts" ? "Les commandes enregistrées sans paiement apparaissent ici." : "Aucune commande dans cette catégorie."}
+            />
           )}
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+export default function OrdersPage() {
+  return (
+    <Suspense fallback={<Spinner />}>
+      <OrdersList />
+    </Suspense>
   );
 }

@@ -50,7 +50,7 @@ export default function AdminDashboard() {
           )}
         </div>
       )}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-2 sm:gap-4 lg:grid-cols-4">
         <StatCard icon={ClipboardList} label="Commandes du jour" value={data.todayOrders} />
         {isAdmin && <StatCard icon={Wallet} label="Encaissé ce mois" value={fcfa(data.monthRevenue)} tone="green" />}
         <StatCard icon={Factory} label="File de production" value={data.productionQueue} tone="violet" />

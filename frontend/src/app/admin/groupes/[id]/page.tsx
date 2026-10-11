@@ -80,7 +80,7 @@ export default function AdminGroupPage() {
         </div>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-4">
+      <div className="grid grid-cols-2 gap-2 sm:gap-4 lg:grid-cols-4">
         <StatCard icon={Users} label="Commandes confirmées" value={t.confirmedCount} />
         <StatCard icon={Layers} label="Documents / pages / feuilles" value={`${t.documentsCount} / ${t.pagesCount} / ${t.sheetsCount}`} tone="violet" />
         <StatCard icon={Banknote} label="Total" value={fcfa(t.totalAmount)} tone="amber" />

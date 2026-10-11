@@ -13,6 +13,7 @@ import { phoneSchema } from "../auth/auth.schemas";
 import { hashPassword } from "../auth/password";
 import { createPasswordResetToken, publicUser } from "../auth/auth.service";
 import { destroyUserSessions } from "../auth/session";
+import { isEnvManagedAdmin } from "../auth/admin-bootstrap";
 import { getSettings } from "../settings/settings.service";
 import { reviewCashPayment, serializePayment, syncPayment } from "../payments/payments.service";
 import { cancelGroup, GROUP_STATUS_LABELS, loadGroupForViewer, serializeGroup, startGroupProduction } from "../groups/groups.service";
@@ -208,6 +209,9 @@ adminMiscRouter.patch("/users/:id", requireAdmin, async (req, res) => {
   const input = z.object({ role: z.enum(["CUSTOMER", "DELEGATE", "OPERATOR", "ADMIN"]).optional(), isActive: z.boolean().optional() }).parse(req.body);
   const target = await prisma.user.findUnique({ where: { id: param(req, "id") }, include: { delegateProfile: true } });
   if (!target) throw notFound("Utilisateur introuvable.");
+  if (isEnvManagedAdmin(target) && ((input.role && input.role !== "ADMIN") || input.isActive === false)) {
+    throw forbidden("Ce compte administrateur est défini par les variables d'environnement (ADMIN_PHONE) et ne peut pas être rétrogradé ni désactivé ici.");
+  }
   if (target.id === me.id && (input.role && input.role !== "ADMIN" || input.isActive === false)) {
     throw forbidden("Vous ne pouvez pas retirer vos propres droits d'administration.");
   }

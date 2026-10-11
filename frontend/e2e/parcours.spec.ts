@@ -5,7 +5,7 @@ test.describe("Pages publiques", () => {
   test("accueil, tarifs et services", async ({ page }) => {
     await page.goto("/");
     await expect(page.getByRole("heading", { level: 1 })).toContainText("Imprimez et faites traiter");
-    await expect(page.getByText("20 FCFA").first()).toBeVisible();
+    await expect(page.getByText("20 FCFA").filter({ visible: true }).first()).toBeVisible();
     await expect(page.getByRole("link", { name: /Assistance WhatsApp|Contacter l'assistance/ })).toHaveAttribute("href", /wa\.me\/237694600007/);
     await page.goto("/tarifs");
     await expect(page.getByText("Simulateur de prix")).toBeVisible();
@@ -37,22 +37,55 @@ test.describe("Parcours client complet", () => {
     await page.getByRole("button", { name: "Continuer" }).click();
     // Recto verso appliqué à tous : 15 pages × 15 FCFA
     await page.getByRole("radio", { name: /Recto verso/ }).first().click();
-    await expect(page.locator("aside").getByText("225 FCFA")).toBeVisible();
+    // Total visible dans le récapitulatif latéral (ordinateur) ou la barre collante (mobile)
+    await expect(page.getByText("225 FCFA").filter({ visible: true }).first()).toBeVisible();
     await page.getByRole("button", { name: "Continuer" }).click();
 
     await expect(page.getByText("Centre de santé de Mvam-essakoe").first()).toBeVisible();
     await page.getByRole("button", { name: "Voir le récapitulatif" }).click();
     await expect(page.getByText("4. Récapitulatif")).toBeVisible();
-    await page.getByRole("button", { name: "Confirmer la commande" }).click();
-    await expect(page.getByRole("heading", { name: /Commande PS-.* enregistrée/ })).toBeVisible();
-
-    await page.getByRole("button", { name: /Payer 225 FCFA/ }).click();
+    // La commande n'est validée qu'avec le paiement
+    await page.getByRole("button", { name: "Payer 225 FCFA et valider" }).click();
     await expect(page).toHaveURL(/\/paiement\/simulateur/);
     await page.getByRole("button", { name: "Simuler un paiement réussi" }).click();
-    await expect(page.getByText("Commande envoyée !")).toBeVisible();
+    await expect(page.getByText("Commande validée !")).toBeVisible();
     await page.getByRole("link", { name: "Voir ma commande" }).click();
     await expect(page.getByText("Code de retrait")).toBeVisible();
     await expect(page.getByText("Paiement confirmé").first()).toBeVisible();
+  });
+
+  test("enregistrer en brouillon puis valider plus tard en payant", async ({ page }) => {
+    await register(page, "Client Brouillon", uniquePhone());
+    await page.goto("/espace/commandes/nouvelle");
+    await page.locator('input[type="file"]').first().setInputFiles({ name: "memoire.pdf", mimeType: "application/pdf", buffer: makePdf(10) });
+    await expect(page.getByText("Analyse terminée")).toBeVisible();
+    await page.getByRole("button", { name: "Continuer" }).click();
+    await page.getByRole("button", { name: "Continuer" }).click();
+    await page.getByRole("button", { name: "Voir le récapitulatif" }).click();
+    await page.getByRole("button", { name: "Enregistrer en brouillon" }).click();
+    await expect(page.getByText("Brouillon — à valider")).toBeVisible();
+
+    await page.goto("/espace");
+    await expect(page.getByText("1 brouillon(s) non validé(s)")).toBeVisible();
+    await page.getByRole("link", { name: "Valider", exact: true }).first().click();
+    await expect(page).toHaveURL(/scope=drafts/);
+    await page.getByRole("link", { name: /Valider/ }).filter({ visible: true }).first().click();
+    await page.getByRole("button", { name: "Payer 200 FCFA et valider" }).click();
+    await expect(page).toHaveURL(/\/paiement\/simulateur/);
+    await page.getByRole("button", { name: "Simuler un paiement réussi" }).click();
+    await expect(page.getByText("Commande validée !")).toBeVisible();
+  });
+
+  test("navigation mobile : barre basse, masquée pendant la commande", async ({ page, isMobile }) => {
+    test.skip(!isMobile, "Spécifique au mobile");
+    await register(page, "Client Mobile", uniquePhone());
+    const bottomNav = page.getByRole("navigation", { name: "Navigation principale mobile" });
+    await expect(bottomNav).toBeVisible();
+    await bottomNav.getByRole("link", { name: "Commander" }).click();
+    await expect(page).toHaveURL(/\/espace\/commandes\/nouvelle/);
+    await expect(bottomNav).toHaveCount(0);
+    await expect(page.getByRole("link", { name: /Assistance WhatsApp|Contacter l'assistance/ })).toBeHidden();
+    await page.getByRole("button", { name: "Étape précédente" }).isVisible();
   });
 
   test("refuse un fichier au format non accepté", async ({ page }) => {

@@ -14,7 +14,7 @@ import { OrdersTable } from "@/components/order/orders-table";
 
 export default function DashboardPage() {
   const { data: user } = useMe();
-  const stats = useQuery({ queryKey: ["orders", "stats"], queryFn: () => api<{ active: number; completed: number; totalSpent: number }>("/orders/stats") });
+  const stats = useQuery({ queryKey: ["orders", "stats"], queryFn: () => api<{ active: number; drafts: number; completed: number; totalSpent: number }>("/orders/stats") });
   const recent = useQuery({ queryKey: ["orders", "recent"], queryFn: () => api<Paginated<OrderSummary>>("/orders?pageSize=5") });
 
   return (
@@ -22,7 +22,7 @@ export default function DashboardPage() {
       <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-end">
         <div>
           <p className="text-sm text-muted-foreground">Bonjour,</p>
-          <h1 className="text-2xl font-bold tracking-tight">{user?.fullName}</h1>
+          <h1 className="text-xl font-bold tracking-tight sm:text-2xl">{user?.fullName}</h1>
           <p className="text-sm text-muted-foreground">Voici un aperçu de votre activité.</p>
         </div>
         <Button asChild>
@@ -32,15 +32,29 @@ export default function DashboardPage() {
         </Button>
       </div>
 
+      {(stats.data?.drafts ?? 0) > 0 && (
+        <Alert
+          variant="warning"
+          title={`${stats.data?.drafts} brouillon(s) non validé(s)`}
+          action={
+            <Link href="/espace/commandes?scope=drafts" className="text-sm font-semibold whitespace-nowrap underline">
+              Valider
+            </Link>
+          }
+        >
+          Payez pour valider vos commandes : elles ne sont imprimées qu&apos;après paiement.
+        </Alert>
+      )}
+
       {user?.delegate?.status === "PENDING" && <Alert variant="info" title="Demande d'espace délégué en cours">Votre demande sera examinée par notre équipe. Vous serez notifié dès sa validation.</Alert>}
 
-      <div className="grid gap-4 sm:grid-cols-3">
+      <div className="grid grid-cols-3 gap-2 sm:gap-4">
         {stats.isLoading ? (
-          Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-32" />)
+          Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-28 sm:h-32" />)
         ) : (
           <>
-            <StatCard icon={ClipboardList} label="Commandes en cours" value={stats.data?.active ?? 0} />
-            <StatCard icon={CheckCircle2} label="Commandes terminées" value={stats.data?.completed ?? 0} tone="green" />
+            <StatCard icon={ClipboardList} label="En cours" value={stats.data?.active ?? 0} />
+            <StatCard icon={CheckCircle2} label="Terminées" value={stats.data?.completed ?? 0} tone="green" />
             <StatCard icon={Wallet} label="Total dépensé" value={fcfa(stats.data?.totalSpent ?? 0)} tone="amber" />
           </>
         )}

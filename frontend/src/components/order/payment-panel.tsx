@@ -62,9 +62,9 @@ export function PaymentPanel({ order }: { order: Order }) {
     <Card className="border-primary/30">
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
-          <CreditCard className="size-5 text-primary" /> Paiement sécurisé
+          <CreditCard className="size-5 text-primary" /> Payer pour valider la commande
         </CardTitle>
-        <CardDescription>L&apos;impression démarre uniquement après confirmation du paiement par Fapshi.</CardDescription>
+        <CardDescription>La commande est validée et imprimée uniquement après confirmation du paiement par Fapshi.</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         {config && !config.payments.enabled && (
@@ -114,7 +114,7 @@ export function PaymentPanel({ order }: { order: Order }) {
           </p>
         )}
         <Button size="lg" className="w-full" onClick={pay} loading={loading} disabled={!config?.payments.enabled}>
-          Payer {fcfa(order.total)}
+          Payer {fcfa(order.total)} et valider
         </Button>
       </CardContent>
     </Card>

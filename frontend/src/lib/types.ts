@@ -37,6 +37,8 @@ export interface User {
   phone: string;
   role: Role;
   isActive: boolean;
+  /** Compte administrateur défini par les variables d'environnement du serveur */
+  managedByEnv?: boolean;
   createdAt: string;
   delegate: null | { status: "PENDING" | "APPROVED" | "REJECTED" | "SUSPENDED"; institution: string; field: string; level: string; className: string; reviewNote: string | null };
   profile: null | { quarter: string | null; addressDetails: string | null; notifyByEmail: boolean };

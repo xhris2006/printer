@@ -1,5 +1,6 @@
 import "dotenv/config";
 import { z } from "zod";
+import { normalizeCameroonPhone } from "../lib/phone";
 
 const bool = (def: boolean) =>
   z
@@ -60,6 +61,12 @@ const schema = z.object({
   CLAMAV_HOST: optionalString,
   CLAMAV_PORT: z.coerce.number().int().positive().default(3310),
 
+  /** Compte administrateur défini par variables (créé ou synchronisé au démarrage de l'API) */
+  ADMIN_PHONE: optionalString,
+  ADMIN_FULL_NAME: optionalString,
+  ADMIN_PASSWORD: optionalString,
+  ADMIN_EMAIL: optionalString,
+
   /** Désactive la limitation de débit (tests E2E locaux uniquement, ignoré en production) */
   DISABLE_RATE_LIMIT: bool(false),
   WORKER_INLINE: bool(true),
@@ -92,6 +99,21 @@ function loadEnv(): Env {
       problems.push("FAPSHI_WEBHOOK_SECRET est requis en production pour authentifier les webhooks.");
     }
   }
+  if (env.ADMIN_PHONE || env.ADMIN_PASSWORD) {
+    if (!env.ADMIN_PHONE || !env.ADMIN_PASSWORD) {
+      problems.push("ADMIN_PHONE et ADMIN_PASSWORD doivent être définis ensemble (compte administrateur).");
+    } else {
+      if (!normalizeCameroonPhone(env.ADMIN_PHONE)) {
+        problems.push("ADMIN_PHONE n'est pas un numéro camerounais valide (ex. +237694600007).");
+      }
+      if (env.ADMIN_PASSWORD.length < 8 || !/[A-Za-z]/.test(env.ADMIN_PASSWORD) || !/\d/.test(env.ADMIN_PASSWORD)) {
+        problems.push("ADMIN_PASSWORD doit contenir au moins 8 caractères, avec des lettres et des chiffres.");
+      }
+      if (env.ADMIN_EMAIL && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(env.ADMIN_EMAIL)) {
+        problems.push("ADMIN_EMAIL n'est pas une adresse email valide.");
+      }
+    }
+  }
   if (env.PAYMENT_PROVIDER === "fapshi" && (!env.FAPSHI_API_USER || !env.FAPSHI_API_KEY)) {
     problems.push("PAYMENT_PROVIDER=fapshi nécessite FAPSHI_API_USER et FAPSHI_API_KEY.");
   }
@@ -122,3 +144,6 @@ export const appSecret = env.APP_SECRET ?? "dev-only-insecure-secret-change-me-0
 export const cookieSecure = env.COOKIE_SECURE ? env.COOKIE_SECURE === "true" : isProduction;
 
 export const emailConfigured = Boolean(env.SMTP_HOST);
+
+/** Numéro (E.164) du compte administrateur géré par les variables d'environnement, s'il existe. */
+export const envAdminPhone = env.ADMIN_PHONE ? normalizeCameroonPhone(env.ADMIN_PHONE) : null;
