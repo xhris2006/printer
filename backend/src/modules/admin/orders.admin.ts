@@ -558,6 +558,24 @@ adminOrdersRouter.get("/documents/:id/download", async (req, res) => {
   sendDownload(req, res, { url, expiresInSec: 300, filename });
 });
 
+/**
+ * Vérifie que les fichiers de la commande existent bien dans le stockage (un fichier peut
+ * avoir été perdu avec un ancien stockage sur disque non persistant).
+ */
+adminOrdersRouter.get("/orders/:id/files-check", async (req, res) => {
+  const order = await prisma.order.findUnique({
+    where: { id: param(req, "id") },
+    select: { items: { select: { document: { select: { id: true, storageKey: true, status: true, purgedAt: true } } } } },
+  });
+  if (!order) throw notFound("Commande introuvable.");
+  const storage = getStorage();
+  const documents = order.items.map((i) => i.document).filter((d) => d !== null && d.status !== "DELETED" && !d.purgedAt);
+  const results = await Promise.all(
+    documents.map(async (d) => ({ id: d!.id, stored: Boolean(await storage.head(d!.storageKey).catch(() => null)) })),
+  );
+  res.json({ checked: results.length, missing: results.filter((r) => !r.stored).map((r) => r.id) });
+});
+
 /** Archive ZIP de tous les fichiers de la commande + fiche de production (?redirect=1 pour un lien direct). */
 adminOrdersRouter.get("/orders/:id/archive", async (req, res) => {
   const archive = await createOrderArchive(currentUser(req), param(req, "id"), req.ip);

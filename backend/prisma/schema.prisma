@@ -809,3 +809,25 @@ model Job {
 
   @@index([status, runAt])
 }
+
+// ─────────────────────────────── Stockage des fichiers en base (STORAGE_DRIVER=database) ───────────────────────────────
+
+/// Fichier privé stocké dans PostgreSQL : persistant et partagé entre toutes les
+/// instances de l'API (aucun disque local nécessaire). Le contenu est découpé en blocs.
+model StoredFile {
+  key         String            @id
+  size        Int
+  contentType String?
+  chunkCount  Int
+  createdAt   DateTime          @default(now())
+  chunks      StoredFileChunk[]
+}
+
+model StoredFileChunk {
+  fileKey String
+  file    StoredFile @relation(fields: [fileKey], references: [key], onDelete: Cascade)
+  index   Int
+  data    Bytes
+
+  @@id([fileKey, index])
+}

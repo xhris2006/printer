@@ -1,15 +1,17 @@
 "use client";
 
 import { useState } from "react";
-import { Download, FileText, FolderDown, Printer } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { Download, FileText, FileWarning, FolderDown, Printer } from "lucide-react";
 import { toast } from "sonner";
 import { api, errorMessage } from "@/lib/api";
-import { formatBytes, plural } from "@/lib/format";
+import { formatBytes, plural, whatsappLink } from "@/lib/format";
 import { optionsSummary } from "@/lib/labels";
 import type { Order, Role } from "@/lib/types";
 import { Button, type ButtonProps } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert } from "@/components/ui/feedback";
+import { WhatsAppIcon } from "@/components/layout/whatsapp-button";
 
 /**
  * Lien direct de téléchargement : l'API répond par une redirection vers un lien
@@ -60,8 +62,23 @@ export function PrintFilesCard({ order, role }: { order: Order; role?: Role }) {
   const files = order.items.filter((i) => i.documentId);
   const printable = order.paymentStatus === "PAID" || order.creditApproved;
   const locked = role === "OPERATOR" && !printable;
-  const available = files.filter((i) => i.documentAvailable);
+  // Vérifie que chaque fichier existe encore dans le stockage (fichiers perdus avec un ancien disque non persistant)
+  const { data: check } = useQuery({
+    queryKey: ["admin", "order", order.id, "files-check"],
+    queryFn: () => api<{ checked: number; missing: string[] }>(`/admin/orders/${order.id}/files-check`),
+    enabled: files.length > 0 && !locked,
+    staleTime: 60_000,
+  });
+  const missing = new Set(check?.missing ?? []);
+  const available = files.filter((i) => i.documentAvailable && !missing.has(i.documentId!));
   if (files.length === 0) return null;
+  const askAgain = (name: string | null) =>
+    order.customer?.phone
+      ? whatsappLink(
+          order.customer.phone,
+          `Bonjour ${order.customer.fullName}, le fichier « ${name ?? "document"} » de votre commande ${order.reference} n'a pas pu être récupéré sur notre serveur. Pouvez-vous nous le renvoyer ici ? Merci.`,
+        )
+      : null;
 
   return (
     <Card className="border-primary/30" data-testid="print-files">
@@ -76,6 +93,12 @@ export function PrintFilesCard({ order, role }: { order: Order; role?: Role }) {
         {locked && <Alert variant="info">Les fichiers seront accessibles dès que le paiement sera confirmé.</Alert>}
         {!locked && !printable && order.status !== "CANCELLED" && (
           <Alert variant="warning">Commande non payée : consultez les fichiers si besoin, mais n&apos;imprimez pas avant la confirmation du paiement.</Alert>
+        )}
+        {missing.size > 0 && (
+          <Alert variant="error" title={missing.size > 1 ? `${missing.size} fichiers introuvables sur le serveur` : "1 fichier introuvable sur le serveur"}>
+            {missing.size > 1 ? "Ces fichiers ont été perdus" : "Ce fichier a été perdu"} (ancien stockage non persistant). Demandez au client de{" "}
+            {missing.size > 1 ? "les" : "le"} renvoyer, par exemple sur WhatsApp.
+          </Alert>
         )}
         <ul className="divide-y rounded-lg border">
           {files.map((item, index) => (
@@ -93,6 +116,19 @@ export function PrintFilesCard({ order, role }: { order: Order; role?: Role }) {
               </div>
               {!item.documentAvailable ? (
                 <span className="text-xs text-muted-foreground sm:text-right">Fichier supprimé (politique de conservation)</span>
+              ) : missing.has(item.documentId!) ? (
+                <div className="flex flex-col gap-2 sm:items-end">
+                  <span className="flex items-center gap-1 text-xs font-semibold text-red-700">
+                    <FileWarning className="size-4" aria-hidden /> Fichier introuvable sur le serveur
+                  </span>
+                  {askAgain(item.documentName) && (
+                    <Button variant="outline" size="sm" asChild>
+                      <a href={askAgain(item.documentName)!} target="_blank" rel="noopener noreferrer">
+                        <WhatsAppIcon className="text-green-600" /> Demander au client
+                      </a>
+                    </Button>
+                  )}
+                </div>
               ) : locked ? null : (
                 <div className="grid grid-cols-2 gap-2 sm:flex sm:shrink-0">
                   <Button variant="outline" size="sm" asChild>

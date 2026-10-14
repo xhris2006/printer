@@ -1,8 +1,10 @@
+import { pipeline } from "node:stream/promises";
 import { Router } from "express";
 import Busboy from "busboy";
 import { badRequest, forbidden, notFound } from "../../lib/errors";
-import { getStorage, contentDisposition } from "./storage";
-import { LocalStorage, verifyToken, type DownloadClaims, type UploadClaims } from "./local";
+import { logger } from "../../lib/logger";
+import { getStorage, contentDisposition, isSignedUrlStorage } from "./storage";
+import { verifyToken, type DownloadClaims, type UploadClaims } from "./local";
 import { param } from "../../lib/http";
 
 const CONTENT_TYPES: Record<string, string> = {
@@ -19,12 +21,12 @@ function contentTypeFor(filename: string) {
   return CONTENT_TYPES[filename.split(".").pop()?.toLowerCase() ?? ""] ?? "application/octet-stream";
 }
 
-/** Routes du pilote de stockage local (URL signées, sans cookie). */
+/** Routes des pilotes servis par l'API (disque local ou base de données) : URL signées, sans cookie. */
 export const storageRouter = Router();
 
 storageRouter.post("/local/upload/:token", async (req, res, next) => {
   const storage = getStorage();
-  if (!(storage instanceof LocalStorage)) throw notFound();
+  if (!isSignedUrlStorage(storage)) throw notFound();
   const claims = verifyToken<UploadClaims>(param(req, "token", 4096), "u");
   if (!claims) throw forbidden("Lien de téléversement invalide ou expiré.");
 
@@ -60,15 +62,21 @@ storageRouter.post("/local/upload/:token", async (req, res, next) => {
 
 storageRouter.get("/local/download/:token", async (req, res) => {
   const storage = getStorage();
-  if (!(storage instanceof LocalStorage)) throw notFound();
+  if (!isSignedUrlStorage(storage)) throw notFound();
   const claims = verifyToken<DownloadClaims>(param(req, "token", 4096), "d");
   if (!claims) throw forbidden("Lien de téléchargement invalide ou expiré.");
   const head = await storage.head(claims.k);
-  if (!head) throw notFound("Fichier introuvable.");
+  if (!head) {
+    throw notFound("Ce fichier n'est plus disponible sur le serveur de stockage : il doit être envoyé à nouveau.");
+  }
   res.setHeader("Content-Disposition", contentDisposition(claims.f, claims.i));
   res.setHeader("Content-Type", contentTypeFor(claims.f));
   res.setHeader("Content-Length", String(head.size));
   res.setHeader("Cache-Control", "private, no-store");
   res.setHeader("X-Content-Type-Options", "nosniff");
-  (await storage.getStream(claims.k)).pipe(res);
+  // pipeline : une erreur de lecture en cours de transfert coupe proprement la réponse
+  await pipeline(await storage.getStream(claims.k), res).catch((error) => {
+    logger.warn({ err: error, key: claims.k }, "Téléchargement interrompu");
+    res.destroy();
+  });
 });

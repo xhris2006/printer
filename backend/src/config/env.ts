@@ -24,6 +24,8 @@ const schema = z.object({
   API_PUBLIC_URL: optionalString,
   RAILWAY_PUBLIC_DOMAIN: optionalString,
   RAILWAY_VOLUME_MOUNT_PATH: optionalString,
+  RAILWAY_ENVIRONMENT_ID: optionalString,
+  RAILWAY_PROJECT_ID: optionalString,
   APP_SECRET: optionalString,
   TRUST_PROXY: z.string().default("1"),
 
@@ -31,7 +33,11 @@ const schema = z.object({
   SESSION_TTL_DAYS: z.coerce.number().int().positive().default(30),
   COOKIE_SECURE: optionalString,
 
-  STORAGE_DRIVER: z.enum(["local", "s3"]).default("local"),
+  /**
+   * local | s3 | database. Non défini : s3 si S3_BUCKET est configuré ; sinon, en production,
+   * database (PostgreSQL) sauf si un volume Railway est monté ; local en développement.
+   */
+  STORAGE_DRIVER: z.enum(["local", "s3", "database"]).optional(),
   /** Dossier du stockage local. Par défaut : volume Railway monté, sinon ./storage. */
   STORAGE_LOCAL_DIR: optionalString,
   S3_BUCKET: optionalString,
@@ -80,6 +86,35 @@ const schema = z.object({
 
 export type Env = z.infer<typeof schema>;
 
+export interface StorageChoice {
+  driver: "local" | "s3" | "database";
+  /** Explication lorsque le choix diffère de la configuration ou de la valeur par défaut */
+  note: string | null;
+}
+
+/**
+ * Choix du stockage des fichiers clients. Un disque local sans volume est effacé à chaque
+ * redémarrage, redéploiement ou mise en veille du conteneur (« Fichier introuvable ») : en
+ * production, on bascule alors sur PostgreSQL, persistant et partagé entre instances.
+ */
+export function resolveStorage(e: Pick<Env, "NODE_ENV" | "STORAGE_DRIVER" | "S3_BUCKET" | "RAILWAY_VOLUME_MOUNT_PATH" | "RAILWAY_ENVIRONMENT_ID" | "RAILWAY_PROJECT_ID" | "RAILWAY_PUBLIC_DOMAIN">): StorageChoice {
+  const production = e.NODE_ENV === "production";
+  const onRailway = Boolean(e.RAILWAY_ENVIRONMENT_ID || e.RAILWAY_PROJECT_ID || e.RAILWAY_PUBLIC_DOMAIN);
+  if (e.STORAGE_DRIVER === "s3" || e.STORAGE_DRIVER === "database") return { driver: e.STORAGE_DRIVER, note: null };
+  if (e.STORAGE_DRIVER === "local") {
+    if (production && onRailway && !e.RAILWAY_VOLUME_MOUNT_PATH) {
+      return {
+        driver: "database",
+        note: "STORAGE_DRIVER=local sur Railway sans volume : le disque du conteneur est effacé à chaque redémarrage. Les fichiers sont stockés dans PostgreSQL.",
+      };
+    }
+    return { driver: "local", note: null };
+  }
+  if (e.S3_BUCKET) return { driver: "s3", note: null };
+  if (production) return e.RAILWAY_VOLUME_MOUNT_PATH ? { driver: "local", note: null } : { driver: "database", note: null };
+  return { driver: "local", note: null };
+}
+
 function loadEnv(): Env {
   const parsed = schema.safeParse(process.env);
   if (!parsed.success) {
@@ -99,9 +134,9 @@ function loadEnv(): Env {
     if (env.PAYMENT_PROVIDER === "fapshi" && env.FAPSHI_ENV === "sandbox" && !env.ALLOW_SANDBOX_IN_PRODUCTION) {
       problems.push("FAPSHI_ENV=sandbox en production : définissez FAPSHI_ENV=live ou ALLOW_SANDBOX_IN_PRODUCTION=true (préproduction).");
     }
-    if (env.STORAGE_DRIVER === "local" && !env.API_PUBLIC_URL && !env.RAILWAY_PUBLIC_DOMAIN) {
+    if (resolveStorage(env).driver !== "s3" && !env.API_PUBLIC_URL && !env.RAILWAY_PUBLIC_DOMAIN) {
       problems.push(
-        "API_PUBLIC_URL est requis en production avec STORAGE_DRIVER=local (URL publique de l'API, ex. https://api.exemple.com) : sans elle, les liens de téléversement et de téléchargement des fichiers pointent vers localhost.",
+        "API_PUBLIC_URL est requis en production (URL publique de l'API, ex. https://api.exemple.com) : sans elle, les liens de téléversement et de téléchargement des fichiers pointent vers localhost.",
       );
     }
     if (env.PAYMENT_PROVIDER === "fapshi" && !env.FAPSHI_WEBHOOK_SECRET) {
@@ -126,8 +161,8 @@ function loadEnv(): Env {
   if (env.PAYMENT_PROVIDER === "fapshi" && (!env.FAPSHI_API_USER || !env.FAPSHI_API_KEY)) {
     problems.push("PAYMENT_PROVIDER=fapshi nécessite FAPSHI_API_USER et FAPSHI_API_KEY.");
   }
-  if (env.STORAGE_DRIVER === "s3" && (!env.S3_BUCKET || !env.S3_ACCESS_KEY_ID || !env.S3_SECRET_ACCESS_KEY)) {
-    problems.push("STORAGE_DRIVER=s3 nécessite S3_BUCKET, S3_ACCESS_KEY_ID et S3_SECRET_ACCESS_KEY.");
+  if (resolveStorage(env).driver === "s3" && (!env.S3_BUCKET || !env.S3_ACCESS_KEY_ID || !env.S3_SECRET_ACCESS_KEY)) {
+    problems.push("Le stockage S3 nécessite S3_BUCKET, S3_ACCESS_KEY_ID et S3_SECRET_ACCESS_KEY.");
   }
   if (problems.length > 0) {
     throw new Error(`Configuration invalide :\n${problems.map((p) => `  - ${p}`).join("\n")}`);
@@ -148,6 +183,9 @@ export const frontendUrl = frontendOrigins[0] ?? "http://localhost:3000";
 export const apiPublicUrl = (
   env.API_PUBLIC_URL ?? (env.RAILWAY_PUBLIC_DOMAIN ? `https://${env.RAILWAY_PUBLIC_DOMAIN}` : "http://localhost:4000")
 ).replace(/\/$/, "");
+
+/** Stockage des fichiers retenu pour cette instance. */
+export const storageChoice = resolveStorage(env);
 
 /** Dossier du stockage local (volume persistant recommandé en production). */
 export const storageLocalDir = env.STORAGE_LOCAL_DIR ?? env.RAILWAY_VOLUME_MOUNT_PATH ?? "./storage";
