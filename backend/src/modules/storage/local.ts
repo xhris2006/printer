@@ -6,7 +6,7 @@ import { pipeline } from "node:stream/promises";
 import { apiPublicUrl, appSecret, storageLocalDir } from "../../config/env";
 import { hmac, safeEqual } from "../../lib/ids";
 import { assertSafeKey } from "./keys";
-import type { StorageDriver, UploadTarget } from "./storage";
+import type { SignedUrlStorage, UploadTarget } from "./storage";
 
 interface UploadClaims {
   k: string;
@@ -45,9 +45,13 @@ export function verifyToken<T extends UploadClaims | DownloadClaims>(token: stri
  * Stockage sur disque (développement ou volume persistant Railway).
  * Les téléversements et téléchargements passent par des URL signées et expirantes.
  */
-export class LocalStorage implements StorageDriver {
+export class LocalStorage implements SignedUrlStorage {
   readonly name = "local" as const;
-  readonly root = path.resolve(storageLocalDir);
+  readonly root: string;
+
+  constructor(root: string = storageLocalDir) {
+    this.root = path.resolve(root);
+  }
 
   pathFor(key: string) {
     assertSafeKey(key);

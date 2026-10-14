@@ -21,6 +21,7 @@ import { quoteInclude, quoteLinesSchema, sendQuote, serializeQuote } from "../qu
 import { STATUS_LABELS } from "../orders/status";
 import { param, sendDownload } from "../../lib/http";
 import { createGroupArchive } from "./files.export";
+import { storageStatus } from "../storage/storage";
 
 export const adminMiscRouter = Router();
 
@@ -77,6 +78,7 @@ adminMiscRouter.get("/stats", async (_req, res) => {
     pendingDelegates,
     duplicatePayments: duplicates,
     revenueLast30Days: [...daily.entries()].map(([date, v]) => ({ date, ...v })),
+    storage: storageStatus(),
   });
 });
 

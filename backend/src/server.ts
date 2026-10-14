@@ -1,5 +1,5 @@
 import { createApp } from "./app";
-import { apiPublicUrl, env, isProduction } from "./config/env";
+import { apiPublicUrl, env, storageChoice } from "./config/env";
 import { logger } from "./lib/logger";
 import { prisma } from "./lib/prisma";
 import { startWorker, type WorkerHandle } from "./jobs/queue";
@@ -7,7 +7,7 @@ import { startScheduler } from "./jobs/scheduler";
 import { getPaymentProvider } from "./modules/payments/payments.service";
 import { isConverterAvailable } from "./modules/documents/converter";
 import { bootstrapEnvAdmin } from "./modules/auth/admin-bootstrap";
-import { getStorage } from "./modules/storage/storage";
+import { getStorage, storageStatus } from "./modules/storage/storage";
 import { LocalStorage } from "./modules/storage/local";
 
 async function main() {
@@ -23,14 +23,14 @@ async function main() {
   if (!(await isConverterAvailable())) logger.warn("LibreOffice introuvable : les DOC/DOCX passeront en vérification manuelle.");
 
   const storage = getStorage();
+  const status = storageStatus();
+  logger.info({ driver: storage.name, publicUrl: apiPublicUrl }, `Stockage des fichiers : ${status.label}`);
+  if (storageChoice.note) logger.warn(storageChoice.note);
+  if (!status.persistent) logger.warn(status.warning);
   if (storage instanceof LocalStorage) {
-    logger.info({ dir: storage.root, publicUrl: apiPublicUrl }, "Stockage local des fichiers");
     await storage.checkWritable().catch((error) =>
       logger.error({ err: error, dir: storage.root }, "Dossier de stockage NON accessible en écriture : les téléversements échoueront (droits du volume ?)"),
     );
-    if (isProduction && env.RAILWAY_PUBLIC_DOMAIN && !env.RAILWAY_VOLUME_MOUNT_PATH) {
-      logger.warn("Stockage local sans volume Railway : les fichiers des clients seront perdus à chaque redéploiement. Montez un volume ou utilisez S3.");
-    }
   }
 
   let worker: WorkerHandle | null = null;

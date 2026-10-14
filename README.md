@@ -147,11 +147,11 @@ Le fichier détaillé est `backend/.env.example` ; les principales variables son
 | --- | --- |
 | `DATABASE_URL` | Chaîne de connexion PostgreSQL |
 | `FRONTEND_URL` | Origine(s) du frontend, séparées par des virgules (CORS, contrôle d'origine, liens) |
-| `API_PUBLIC_URL` | URL publique de l'API : les liens de téléversement et de téléchargement du stockage local pointent vers elle. Par défaut : `https://$RAILWAY_PUBLIC_DOMAIN` sur Railway. **Obligatoire en production** avec `STORAGE_DRIVER=local` hors Railway |
+| `API_PUBLIC_URL` | URL publique de l'API : les liens de téléversement et de téléchargement des fichiers pointent vers elle (sauf avec S3). Par défaut : `https://$RAILWAY_PUBLIC_DOMAIN` sur Railway. **Obligatoire en production** hors Railway |
 | `STORAGE_LOCAL_DIR` | Dossier du stockage local. Par défaut : le volume Railway monté (`RAILWAY_VOLUME_MOUNT_PATH`), sinon `./storage` |
 | `APP_SECRET` | ≥ 32 caractères, **obligatoire en production** (signature des liens de stockage) |
 | `TRUST_PROXY` | Nombre de proxys de confiance (`1` sur Railway ; `2` si les requêtes passent par Vercel puis Railway) |
-| `STORAGE_DRIVER` | `local` ou `s3` |
+| `STORAGE_DRIVER` | Vide (recommandé) = automatique : `s3` si `S3_BUCKET` est défini ; sinon en production `database` (PostgreSQL), ou `local` si un volume Railway est monté ; `local` en développement. Valeurs possibles : `database`, `s3`, `local` |
 | `S3_*` | Bucket, région, endpoint, clés (stockage compatible S3) |
 | `PAYMENT_PROVIDER` | `fapshi`, `mock` (simulateur, **refusé en production**) ou `none` |
 | `FAPSHI_ENV` | `sandbox` ou `live` |
@@ -238,7 +238,15 @@ L'intégration suit l'API documentée par Fapshi (https://docs.fapshi.com) :
 ## 9. Stockage des documents
 
 - Les documents sont **toujours privés**. Le navigateur téléverse directement vers le stockage via une URL signée valable 30 minutes, avec une taille maximale imposée. Les téléchargements utilisent des URL temporaires de 5 minutes.
-- `STORAGE_DRIVER=local` : disque local (`STORAGE_LOCAL_DIR`), adapté au développement ou à un volume Railway. Les liens signés passent par `API_PUBLIC_URL`.
+- **Par défaut en production : `database`**. Les fichiers sont stockés dans PostgreSQL, découpés en blocs de 4 Mo.
+  - Ils survivent aux redémarrages, redéploiements et mises en veille du serveur.
+  - Ils sont visibles depuis toutes les instances et tous les appareils.
+  - Aucune configuration n'est nécessaire.
+  - Les liens signés passent par `API_PUBLIC_URL`. La base grossit avec les fichiers, puis diminue avec la politique de conservation.
+- `STORAGE_DRIVER=local` : disque local (`STORAGE_LOCAL_DIR`), pour le développement ou un **disque persistant** (volume Railway).
+  - ⚠️ Sans volume, le disque d'un conteneur est **effacé à chaque redémarrage** : les fichiers disparaissent et l'admin obtient « Fichier introuvable ».
+  - Sur Railway sans volume, l'API bascule donc automatiquement sur `database`, même si `STORAGE_DRIVER=local` est défini.
+  - Ailleurs, un avertissement s'affiche dans les journaux et sur le tableau de bord admin.
 - `STORAGE_DRIVER=s3` (recommandé en production) : AWS S3, Cloudflare R2, Backblaze B2, MinIO… Le bucket doit rester **privé** et sa politique CORS doit autoriser l'envoi depuis le site :
 
 ```json
@@ -258,6 +266,9 @@ L'intégration suit l'API documentée par Fapshi (https://docs.fapshi.com) :
   - PDF : refus du JavaScript et des actions de lancement ; fichiers corrompus signalés ;
   - conversion LibreOffice dans un processus séparé, avec profil jetable, environnement minimal et délai maximal ;
   - antivirus ClamAV facultatif.
+- **Fichiers perdus avant le passage à un stockage persistant** :
+  - la fiche commande les signale (« Fichier introuvable sur le serveur ») avec un bouton WhatsApp pour demander au client de les renvoyer ;
+  - les fichiers encore présents sur l'ancien disque local sont importés automatiquement en base à la première lecture.
 - **Récupération par l'équipe** :
   - un lien direct `GET /api/admin/documents/:id/download?variant=original|pdf&redirect=1` redirige vers un lien signé ;
   - l'archive `GET /api/admin/orders/:id/archive` (ou `/api/admin/groups/:id/archive`) est construite à la demande, déposée dans le stockage privé sous `exports/`, servie par un lien signé de 10 minutes, puis supprimée automatiquement après 2 heures ;
@@ -274,11 +285,13 @@ L'intégration suit l'API documentée par Fapshi (https://docs.fapshi.com) :
 3. Variables : `DATABASE_URL=${{Postgres.DATABASE_URL}}`, `NODE_ENV=production`, `APP_SECRET`, `ADMIN_PHONE`, `ADMIN_FULL_NAME`, `ADMIN_PASSWORD`, `FRONTEND_URL=https://<site>.vercel.app`, `TRUST_PROXY=2`, les variables `STORAGE_DRIVER`/`S3_*`, les variables Fapshi et éventuellement SMTP (recommandé : l'équipe reçoit alors un email à chaque commande payée). Générez un domaine public pour l'API (Settings → Networking) : `API_PUBLIC_URL` prend automatiquement la valeur `https://<api>.up.railway.app`. Si vous utilisez un domaine personnalisé, définissez-la explicitement.
 4. Initialisez une seule fois les données de référence depuis un shell Railway : `npm run db:seed:prod`. L'administrateur est créé automatiquement à partir des variables `ADMIN_*`.
 5. Facultatif : un second service avec la même image et la commande `node dist/src/worker.js` pour les conversions lourdes. Dans ce cas, mettez `WORKER_INLINE=false` sur l'API.
-6. Stockage local sur Railway : **montez un volume**, sinon les fichiers des clients sont perdus à chaque redéploiement.
-   - Le chemin du volume est utilisé automatiquement (`RAILWAY_VOLUME_MOUNT_PATH`), par exemple `/app/storage`.
-   - L'image s'exécute avec l'utilisateur `node`, alors que Railway monte les volumes en `root` : ajoutez la variable `RAILWAY_RUN_UID=0` pour que l'API puisse y écrire.
-   - Au démarrage, les journaux indiquent le dossier et l'URL publique utilisés, et signalent une erreur si le dossier n'est pas accessible en écriture.
-   - S3 reste recommandé.
+6. **Fichiers des clients** : rien à configurer. Par défaut, ils sont stockés dans la base PostgreSQL, qui est persistante.
+   - Ne définissez pas `STORAGE_DRIVER=local` sans volume.
+   - Au démarrage, les journaux indiquent le stockage utilisé (« Stockage des fichiers : … »).
+   - Pour un **volume** (facultatif) :
+     - montez-le, par exemple sur `/app/storage` : son chemin est utilisé automatiquement (`RAILWAY_VOLUME_MOUNT_PATH`) ;
+     - ajoutez `RAILWAY_RUN_UID=0`, car l'image s'exécute avec l'utilisateur `node` alors que Railway monte les volumes en `root`.
+   - Pour un stockage objet : configurez `S3_*`.
 
 ### Frontend sur Vercel
 1. Importez le dépôt avec **Root Directory = `frontend`** ; Next.js est détecté automatiquement, aucun `vercel.json` n'est nécessaire.
@@ -300,13 +313,18 @@ Le cookie de session (`ps_session`, httpOnly, SameSite=Lax, Secure en production
   pg_dump "$DATABASE_URL" --format=custom --file=print-secretariat-$(date +%F).dump
   pg_restore --clean --if-exists --dbname="$DATABASE_URL" print-secretariat-AAAA-MM-JJ.dump   # restauration
   ```
-- **Fichiers** : activez le versionnement ou la réplication du bucket S3, ou sauvegardez le volume Railway. Les documents sont temporaires (politique de conservation) ; les reçus PDF sont régénérés à la demande depuis la base.
+- **Fichiers** : avec le stockage par défaut (`database`), ils sont inclus dans les sauvegardes PostgreSQL. Avec S3, activez le versionnement ou la réplication du bucket ; avec un volume, sauvegardez-le. Les documents sont temporaires (politique de conservation) ; les reçus PDF sont régénérés à la demande depuis la base.
 - **Journal d'audit** : il couvre les actions d'administration, les paiements manuels, les exceptions de crédit, les téléchargements de fichiers et les changements de tarifs.
 - **Tâches planifiées** (worker) :
   - rapprochement des paiements (2 min) ;
   - rappels de retrait (30 min, espacés et plafonnés) ;
   - conservation des documents (6 h) ;
   - nettoyage technique.
+
+### Dépannage : « Fichier introuvable »
+Ce message signifie que le fichier n'existe plus dans le stockage. Cause habituelle : un stockage sur disque local sans volume. Le disque du conteneur est effacé à chaque redémarrage, redéploiement ou mise en veille ; le fichier semble donc disponible « au début », puis disparaît.
+
+Avec le stockage par défaut (`database`), cela ne se produit plus. Vérifiez la ligne « Stockage des fichiers : … » dans les journaux de l'API. Les fichiers perdus auparavant sont signalés sur la fiche commande : demandez au client de les renvoyer.
 
 ---
 
@@ -323,7 +341,7 @@ cd frontend && npm run build && BACKEND_URL=http://localhost:4000 npm start
 E2E_ADMIN_PHONE=6XXXXXXXX E2E_ADMIN_PASSWORD=... npm run test:e2e
 ```
 
-Couverture backend (91 tests) :
+Couverture backend (95 tests) :
 - tarification (N&B, couleur, recto verso distinct, feuilles et faces, exemplaires, reliures, combinaisons non configurées) ;
 - analyse des fichiers (multipage, images, extensions falsifiées, PDF corrompu ou avec JavaScript, DOCX avec macros, conversion LibreOffice) ;
 - commandes multi-documents (30 fichiers, montants client ignorés, instantané figé, livraison à confirmer) ;
@@ -332,6 +350,7 @@ Couverture backend (91 tests) :
 - validation par le paiement : brouillon non visible en production, « payer et valider », refus sans figer si le paiement est impossible, changement de tarif signalé ;
 - administrateur défini par variables (création, synchronisation, connexion) ;
 - réception des fichiers par l'équipe : lien direct (redirection), fichier intact, page d'erreur lisible, archive ZIP (originaux, PDF convertis, fiche de production, fichiers supprimés signalés, suppression automatique), archive de groupe (un dossier par commande payée), alertes à l'équipe pour chaque commande payée et à la clôture d'une collecte ;
+- stockage persistant en base : choix automatique, découpage en blocs, fichier toujours disponible après un redémarrage et depuis un autre appareil, import depuis l'ancien disque, fichier perdu signalé ;
 - changement de statut par l'administration (règles proposées, étapes sautées après paiement uniquement, corrections réservées à l'admin avec motif, client prévenu et journal, statuts à preuve via leur action dédiée, remise erronée annulable) ;
 - production et transitions de statut, accès aux fichiers et par rôle, suivi public, devis, rappels et conservation, authentification.
 

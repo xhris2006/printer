@@ -103,6 +103,7 @@ const routes: RouteDoc[] = [
   R("post", "/api/admin/orders/{id}/refund", "Administration", "Consigner un remboursement", "admin"),
   R("post", "/api/admin/orders/{id}/cash-payment", "Administration", "Encaissement en espèces au comptoir", "admin"),
   R("get", "/api/admin/documents/{id}/download", "Production", "Télécharger un fichier autorisé (URL temporaire ; ?variant=original|pdf, ?redirect=1)", "staff"),
+  R("get", "/api/admin/orders/{id}/files-check", "Production", "Vérifie la présence des fichiers de la commande dans le stockage", "staff"),
   R("get", "/api/admin/orders/{id}/archive", "Production", "Archive ZIP des fichiers de la commande + fiche de production (?redirect=1)", "staff"),
   R("get", "/api/admin/payments", "Administration", "Paiements", "admin"),
   R("get", "/api/admin/payments/{id}/events", "Administration", "Journal d'un paiement", "admin"),

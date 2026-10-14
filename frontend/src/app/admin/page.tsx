@@ -23,6 +23,7 @@ interface Stats {
   pendingDelegates: number;
   duplicatePayments: number;
   revenueLast30Days: { date: string; revenue: number; payments: number }[];
+  storage?: { driver: string; label: string; persistent: boolean; warning: string | null };
 }
 
 export default function AdminDashboard() {
@@ -34,6 +35,11 @@ export default function AdminDashboard() {
   return (
     <div className="space-y-6">
       <PageHeader title="Tableau de bord" description="Activité des ventes, de la production et des retraits." />
+      {isAdmin && data.storage && !data.storage.persistent && (
+        <Alert variant="error" title="Stockage des fichiers non persistant">
+          {data.storage.warning}
+        </Alert>
+      )}
       {isAdmin && (data.pendingCashVerifications > 0 || data.duplicatePayments > 0 || data.pendingDelegates > 0 || data.pendingQuotes > 0) && (
         <div className="grid gap-2 md:grid-cols-2">
           {data.pendingCashVerifications > 0 && (
