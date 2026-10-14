@@ -50,7 +50,11 @@ Les deux applications sont indépendantes. Le frontend relaie `/api/*` vers l'AP
 **Administration et production** (rôles `ADMIN` et `OPERATOR`)
 - Tableau de bord (encaissements sur 30 jours, files, alertes) et liste des commandes filtrable (date, statut, type, paiement, remise, recherche). Export CSV protégé contre l'injection de formules.
 - File de production (payées ou autorisées uniquement), changements de statut contrôlés par une machine à états.
-- Téléchargement des fichiers par URL temporaire de 5 minutes, journalisé.
+- **Réception des fichiers à imprimer** :
+  - l'équipe (administrateurs et opérateurs) est prévenue de chaque commande payée, dans l'espace et par email si SMTP est configuré, avec le lien vers la commande ;
+  - la fiche commande affiche en tête une carte « Fichiers à imprimer » : « Ouvrir » affiche le fichier (version PDF pour les documents Word) pour l'imprimer directement, « Télécharger » récupère l'original ;
+  - « Tout télécharger (ZIP) » produit une archive avec tous les fichiers numérotés dans l'ordre, les PDF convertis et une fiche de production (client, options, exemplaires, finition, retrait ou livraison). Pour une commande groupée, l'archive contient un dossier par commande payée.
+  - Les liens sont temporaires et journalisés. L'opérateur n'accède qu'aux fichiers des commandes payées ou autorisées.
 - Remise avec preuve : code de retrait ou vérification décrite. Livraison avec réceptionnaire, échec de livraison, rappels, report de retrait, « non retirée ».
 - Exception « production sans paiement » (crédit) avec motif journalisé ; dérogation de groupe.
 - Encaissement en espèces au comptoir, validation des paiements déclarés, revérification Fapshi, alertes de double paiement, annulations, remboursements consignés.
@@ -138,7 +142,8 @@ Le fichier détaillé est `backend/.env.example` ; les principales variables son
 | --- | --- |
 | `DATABASE_URL` | Chaîne de connexion PostgreSQL |
 | `FRONTEND_URL` | Origine(s) du frontend, séparées par des virgules (CORS, contrôle d'origine, liens) |
-| `API_PUBLIC_URL` | URL publique de l'API (liens signés du stockage local, Swagger) |
+| `API_PUBLIC_URL` | URL publique de l'API : les liens de téléversement et de téléchargement du stockage local pointent vers elle. Par défaut : `https://$RAILWAY_PUBLIC_DOMAIN` sur Railway. **Obligatoire en production** avec `STORAGE_DRIVER=local` hors Railway |
+| `STORAGE_LOCAL_DIR` | Dossier du stockage local. Par défaut : le volume Railway monté (`RAILWAY_VOLUME_MOUNT_PATH`), sinon `./storage` |
 | `APP_SECRET` | ≥ 32 caractères, **obligatoire en production** (signature des liens de stockage) |
 | `TRUST_PROXY` | Nombre de proxys de confiance (`1` sur Railway ; `2` si les requêtes passent par Vercel puis Railway) |
 | `STORAGE_DRIVER` | `local` ou `s3` |
@@ -248,6 +253,10 @@ L'intégration suit l'API documentée par Fapshi (https://docs.fapshi.com) :
   - PDF : refus du JavaScript et des actions de lancement ; fichiers corrompus signalés ;
   - conversion LibreOffice dans un processus séparé, avec profil jetable, environnement minimal et délai maximal ;
   - antivirus ClamAV facultatif.
+- **Récupération par l'équipe** :
+  - un lien direct `GET /api/admin/documents/:id/download?variant=original|pdf&redirect=1` redirige vers un lien signé ;
+  - l'archive `GET /api/admin/orders/:id/archive` (ou `/api/admin/groups/:id/archive`) est construite à la demande, déposée dans le stockage privé sous `exports/`, servie par un lien signé de 10 minutes, puis supprimée automatiquement après 2 heures ;
+  - un fichier manquant dans le stockage est signalé dans la fiche de production au lieu de faire échouer l'archive.
 - **Conservation** : les fichiers sont supprimés automatiquement N jours après la fin de la commande (`documents.retentionDays`, 30 par défaut). Les fichiers jamais utilisés sont supprimés après 7 jours.
 
 ---
@@ -257,10 +266,14 @@ L'intégration suit l'API documentée par Fapshi (https://docs.fapshi.com) :
 ### Backend sur Railway
 1. Créez un projet Railway avec un service **PostgreSQL**.
 2. Ajoutez un service depuis ce dépôt avec **Root Directory = `backend`**. `backend/railway.json` utilise le `Dockerfile` (Node 22 + LibreOffice Writer). Le démarrage applique les migrations (`prisma migrate deploy`) puis lance l'API ; le contrôle de santé est `/api/health`.
-3. Variables : `DATABASE_URL=${{Postgres.DATABASE_URL}}`, `NODE_ENV=production`, `APP_SECRET`, `ADMIN_PHONE`, `ADMIN_FULL_NAME`, `ADMIN_PASSWORD`, `FRONTEND_URL=https://<site>.vercel.app`, `API_PUBLIC_URL=https://<api>.up.railway.app`, `TRUST_PROXY=2`, les variables `STORAGE_DRIVER`/`S3_*`, les variables Fapshi et éventuellement SMTP.
+3. Variables : `DATABASE_URL=${{Postgres.DATABASE_URL}}`, `NODE_ENV=production`, `APP_SECRET`, `ADMIN_PHONE`, `ADMIN_FULL_NAME`, `ADMIN_PASSWORD`, `FRONTEND_URL=https://<site>.vercel.app`, `TRUST_PROXY=2`, les variables `STORAGE_DRIVER`/`S3_*`, les variables Fapshi et éventuellement SMTP (recommandé : l'équipe reçoit alors un email à chaque commande payée). Générez un domaine public pour l'API (Settings → Networking) : `API_PUBLIC_URL` prend automatiquement la valeur `https://<api>.up.railway.app`. Si vous utilisez un domaine personnalisé, définissez-la explicitement.
 4. Initialisez une seule fois les données de référence depuis un shell Railway : `npm run db:seed:prod`. L'administrateur est créé automatiquement à partir des variables `ADMIN_*`.
 5. Facultatif : un second service avec la même image et la commande `node dist/src/worker.js` pour les conversions lourdes. Dans ce cas, mettez `WORKER_INLINE=false` sur l'API.
-6. Stockage local sur Railway : montez un volume sur `/app/storage`. S3 reste recommandé.
+6. Stockage local sur Railway : **montez un volume**, sinon les fichiers des clients sont perdus à chaque redéploiement.
+   - Le chemin du volume est utilisé automatiquement (`RAILWAY_VOLUME_MOUNT_PATH`), par exemple `/app/storage`.
+   - L'image s'exécute avec l'utilisateur `node`, alors que Railway monte les volumes en `root` : ajoutez la variable `RAILWAY_RUN_UID=0` pour que l'API puisse y écrire.
+   - Au démarrage, les journaux indiquent le dossier et l'URL publique utilisés, et signalent une erreur si le dossier n'est pas accessible en écriture.
+   - S3 reste recommandé.
 
 ### Frontend sur Vercel
 1. Importez le dépôt avec **Root Directory = `frontend`** ; Next.js est détecté automatiquement, aucun `vercel.json` n'est nécessaire.
@@ -305,7 +318,7 @@ cd frontend && npm run build && BACKEND_URL=http://localhost:4000 npm start
 E2E_ADMIN_PHONE=6XXXXXXXX E2E_ADMIN_PASSWORD=... npm run test:e2e
 ```
 
-Couverture backend (80 tests) :
+Couverture backend (87 tests) :
 - tarification (N&B, couleur, recto verso distinct, feuilles et faces, exemplaires, reliures, combinaisons non configurées) ;
 - analyse des fichiers (multipage, images, extensions falsifiées, PDF corrompu ou avec JavaScript, DOCX avec macros, conversion LibreOffice) ;
 - commandes multi-documents (30 fichiers, montants client ignorés, instantané figé, livraison à confirmer) ;
@@ -313,6 +326,7 @@ Couverture backend (80 tests) :
 - commandes groupées (modes A et B, isolation des délégués, paiement espèces vérifié par l'admin, règles de production) ;
 - validation par le paiement : brouillon non visible en production, « payer et valider », refus sans figer si le paiement est impossible, changement de tarif signalé ;
 - administrateur défini par variables (création, synchronisation, connexion) ;
+- réception des fichiers par l'équipe : lien direct (redirection), fichier intact, page d'erreur lisible, archive ZIP (originaux, PDF convertis, fiche de production, fichiers supprimés signalés, suppression automatique), archive de groupe (un dossier par commande payée), alertes à l'équipe pour chaque commande payée et à la clôture d'une collecte ;
 - production et transitions de statut, accès aux fichiers et par rôle, suivi public, devis, rappels et conservation, authentification.
 
 Les parcours E2E Playwright (mobile et bureau) couvrent :
@@ -322,6 +336,7 @@ Les parcours E2E Playwright (mobile et bureau) couvrent :
 - la navigation mobile (barre basse masquée pendant la commande) ;
 - le refus de format ;
 - les pages d'administration ;
+- la réception des fichiers par l'administrateur (notification, téléchargement d'un fichier identique à l'original, archive ZIP) ;
 - le lancement en production ;
 - la validation d'un délégué et la création d'un lot avec lien de collecte.
 

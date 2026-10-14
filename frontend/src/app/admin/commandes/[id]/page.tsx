@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { useParams } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Ban, Banknote, BellRing, CalendarClock, CheckCircle2, Download, FileCheck2, HandCoins, KeyRound, PackageCheck, ShieldCheck, Truck, Undo2 } from "lucide-react";
+import { Ban, Banknote, BellRing, CalendarClock, CheckCircle2, HandCoins, KeyRound, PackageCheck, ShieldCheck, Truck, Undo2 } from "lucide-react";
 import { toast } from "sonner";
 import { api, errorMessage } from "@/lib/api";
 import { fcfa, formatDate, formatPhone, whatsappLink } from "@/lib/format";
@@ -20,6 +20,7 @@ import { OrderStatusBadge, PaymentStateBadge, PaymentStatusBadge } from "@/compo
 import { StatusTimeline } from "@/components/order/status-timeline";
 import { WhatsAppIcon } from "@/components/layout/whatsapp-button";
 import { ActionDialog, type ActionConfig } from "@/components/admin/action-dialog";
+import { PrintFilesCard } from "@/components/admin/print-files";
 
 const NEXT_STATUSES: Partial<Record<OrderStatus, OrderStatus[]>> = {
   PAID: ["TO_PREPARE"],
@@ -65,14 +66,6 @@ export default function AdminOrderPage() {
     await call("status", { status }, `Statut : ${ORDER_STATUS_LABELS[status]}`).catch(() => undefined);
     setBusy(null);
   };
-  const download = async (documentId: string, variant: "original" | "pdf") => {
-    try {
-      const { url } = await api<{ url: string }>(`/admin/documents/${documentId}/download?variant=${variant}`);
-      window.open(url, "_blank", "noopener");
-    } catch (e) {
-      toast.error(errorMessage(e));
-    }
-  };
 
   const allowedNext = (NEXT_STATUSES[order.status] ?? []).filter((s) => {
     if (s === "OUT_FOR_DELIVERY") return order.fulfillmentMethod === "DELIVERY";
@@ -115,7 +108,9 @@ export default function AdminOrderPage() {
       {order.status === "CANCELLED" && order.paymentStatus === "PAID" && <Alert variant="warning" title="Commande annulée après paiement">Consignez le remboursement effectué.</Alert>}
 
       <div className="grid gap-6 lg:grid-cols-[1fr_340px]">
-        <div className="space-y-6">
+        <div className="min-w-0 space-y-6">
+          <PrintFilesCard order={order} role={me?.role} />
+
           <Card>
             <CardHeader>
               <CardTitle>Actions</CardTitle>
@@ -328,7 +323,7 @@ export default function AdminOrderPage() {
 
           <Card>
             <CardHeader>
-              <CardTitle>Documents à produire</CardTitle>
+              <CardTitle>Détail et montants</CardTitle>
             </CardHeader>
             <CardContent>
               <Table>
@@ -339,7 +334,6 @@ export default function AdminOrderPage() {
                     <TH className="text-right">Ex.</TH>
                     <TH className="text-right">Feuilles</TH>
                     <TH className="text-right">Montant</TH>
-                    <TH />
                   </TR>
                 </THead>
                 <TBody>
@@ -369,21 +363,6 @@ export default function AdminOrderPage() {
                       <TD className="text-right">{item.copies}</TD>
                       <TD className="text-right">{item.kind === "PRINT" ? item.sheets : "—"}</TD>
                       <TD className="text-right font-semibold">{fcfa(item.lineTotal)}</TD>
-                      <TD className="text-right whitespace-nowrap">
-                        {item.documentId && item.documentAvailable && (
-                          <>
-                            <Button size="icon" variant="ghost" onClick={() => download(item.documentId!, "original")} aria-label="Télécharger l'original">
-                              <Download />
-                            </Button>
-                            {item.documentKind && ["DOC", "DOCX"].includes(item.documentKind) && (
-                              <Button size="icon" variant="ghost" onClick={() => download(item.documentId!, "pdf")} aria-label="Télécharger la version PDF">
-                                <FileCheck2 />
-                              </Button>
-                            )}
-                          </>
-                        )}
-                        {item.documentId && !item.documentAvailable && <span className="text-xs text-muted-foreground">Supprimé</span>}
-                      </TD>
                     </TR>
                   ))}
                 </TBody>

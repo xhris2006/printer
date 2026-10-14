@@ -89,6 +89,8 @@ export class S3Storage implements StorageDriver {
         Bucket: this.bucket,
         Key: key,
         ResponseContentDisposition: contentDisposition(options.filename, options.inline),
+        // Affichage dans le navigateur (impression directe) pour les PDF ouverts en ligne
+        ...(options.inline && options.filename.toLowerCase().endsWith(".pdf") ? { ResponseContentType: "application/pdf" } : {}),
       }),
       { expiresIn: options.expiresInSec ?? 300 },
     );

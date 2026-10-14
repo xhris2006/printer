@@ -5,6 +5,20 @@ import { getStorage, contentDisposition } from "./storage";
 import { LocalStorage, verifyToken, type DownloadClaims, type UploadClaims } from "./local";
 import { param } from "../../lib/http";
 
+const CONTENT_TYPES: Record<string, string> = {
+  pdf: "application/pdf",
+  zip: "application/zip",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  png: "image/png",
+  doc: "application/msword",
+  docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+};
+
+function contentTypeFor(filename: string) {
+  return CONTENT_TYPES[filename.split(".").pop()?.toLowerCase() ?? ""] ?? "application/octet-stream";
+}
+
 /** Routes du pilote de stockage local (URL signées, sans cookie). */
 export const storageRouter = Router();
 
@@ -52,7 +66,7 @@ storageRouter.get("/local/download/:token", async (req, res) => {
   const head = await storage.head(claims.k);
   if (!head) throw notFound("Fichier introuvable.");
   res.setHeader("Content-Disposition", contentDisposition(claims.f, claims.i));
-  res.setHeader("Content-Type", claims.f.toLowerCase().endsWith(".pdf") ? "application/pdf" : "application/octet-stream");
+  res.setHeader("Content-Type", contentTypeFor(claims.f));
   res.setHeader("Content-Length", String(head.size));
   res.setHeader("Cache-Control", "private, no-store");
   res.setHeader("X-Content-Type-Options", "nosniff");

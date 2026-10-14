@@ -6,7 +6,7 @@ import { formatFcfa } from "../../lib/format";
 import { getSettings } from "../settings/settings.service";
 import { computeTotals, priceItem, PricingError, type ItemPrice } from "../pricing/pricing";
 import { buildSnapshot, loadPricing, resolveDeliveryFee, type DeliveryResolution } from "../pricing/pricing.service";
-import { notify } from "../notifications/notifications.service";
+import { notify, notifyStaff } from "../notifications/notifications.service";
 import { audit } from "../audit/audit";
 import { canTransition, IN_PRODUCTION_STATUSES, STATUS_LABELS } from "./status";
 import type { OrderInput } from "./orders.schemas";
@@ -119,6 +119,9 @@ export function serializeOrder(order: OrderDetail, viewer: Viewer) {
       documentAvailable: Boolean(item.document && !item.document.purgedAt && item.document.status !== "DELETED"),
       pageCountSource: item.document?.pageCountSource ?? null,
       documentKind: item.document?.kind ?? null,
+      /** Une version PDF convertie (DOC/DOCX) est disponible pour l'impression */
+      documentHasPdf: viewer === "staff" ? Boolean(item.document?.pdfStorageKey) : undefined,
+      documentSizeBytes: showPrivate ? (item.document?.sizeBytes ?? null) : undefined,
       pageCount: item.pageCount,
       sheets: item.sheets,
       faces: item.faces,
@@ -559,6 +562,7 @@ export async function transitionOrder(tx: Tx, orderId: string, to: OrderStatus, 
   };
   const message = messages[to];
   if (message) await notify({ userId: order.customerId, orderId, type: `ORDER_${to}`, title: message.title, body: message.body, link }, tx);
+  if (to === "PAID") await notifyStaffOrderToPrint(tx, orderId, { actorId: options.actorId, reason: "paid" });
 
   if (order.groupOrderId) await refreshGroupStatus(tx, order.groupOrderId);
   return updated;
@@ -604,6 +608,36 @@ export async function reorder(user: User, orderId: string) {
   return { draft, skipped };
 }
 
+/**
+ * Prévient l'équipe qu'une commande est prête à être imprimée (paiement confirmé ou
+ * autorisation sans paiement), avec un lien vers la fiche et ses fichiers. Les
+ * contributions d'une collecte étudiante sont signalées à la clôture du groupe.
+ */
+export async function notifyStaffOrderToPrint(tx: Tx, orderId: string, options: { actorId: string | null; reason: "paid" | "credit" }) {
+  const order = await tx.order.findUniqueOrThrow({
+    where: { id: orderId },
+    include: {
+      customer: { select: { fullName: true } },
+      groupOrder: { select: { mode: true } },
+      items: { select: { documentId: true, faces: true } },
+    },
+  });
+  if (order.groupOrder?.mode === "STUDENT_CONTRIBUTIONS") return;
+  const files = order.items.filter((i) => i.documentId).length;
+  const faces = order.items.reduce((s, i) => s + i.faces, 0);
+  await notifyStaff(
+    {
+      orderId,
+      type: "STAFF_ORDER_TO_PRINT",
+      title: `${options.reason === "paid" ? "Nouvelle commande payée" : "Commande autorisée sans paiement"} — ${order.reference}`,
+      body: `${order.customer.fullName} : ${files} fichier(s) à imprimer${faces > 0 ? ` (${faces} face(s))` : ""}. Ouvrez la commande pour télécharger les fichiers et la fiche de production.`,
+      link: `/admin/commandes/${orderId}`,
+    },
+    { excludeUserId: options.actorId },
+    tx,
+  );
+}
+
 export async function recordAdminCredit(actor: User, orderId: string, reason: string, ip?: string) {
   return prisma.$transaction(async (tx) => {
     await lockOrder(tx, orderId);
@@ -616,6 +650,7 @@ export async function recordAdminCredit(actor: User, orderId: string, reason: st
       data: { creditApproved: true, creditApprovedById: actor.id, creditReason: reason, creditApprovedAt: new Date() },
     });
     await audit({ actorId: actor.id, action: "order.credit_approved", entityType: "Order", entityId: orderId, metadata: { reason }, ip }, tx);
+    await notifyStaffOrderToPrint(tx, orderId, { actorId: actor.id, reason: "credit" });
     return getOrderDetail(orderId, tx);
   });
 }

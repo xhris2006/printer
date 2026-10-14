@@ -19,7 +19,8 @@ import { reviewCashPayment, serializePayment, syncPayment } from "../payments/pa
 import { cancelGroup, GROUP_STATUS_LABELS, loadGroupForViewer, serializeGroup, startGroupProduction } from "../groups/groups.service";
 import { quoteInclude, quoteLinesSchema, sendQuote, serializeQuote } from "../quotes/quotes.service";
 import { STATUS_LABELS } from "../orders/status";
-import { param } from "../../lib/http";
+import { param, sendDownload } from "../../lib/http";
+import { createGroupArchive } from "./files.export";
 
 export const adminMiscRouter = Router();
 
@@ -334,6 +335,12 @@ adminMiscRouter.get("/groups", async (req, res) => {
 adminMiscRouter.get("/groups/:id", async (req, res) => {
   const { group } = await loadGroupForViewer(currentUser(req), param(req, "id"));
   res.json({ group: serializeGroup(group, "staff") });
+});
+
+/** Archive ZIP des fichiers du groupe : un dossier par commande payée ou autorisée. */
+adminMiscRouter.get("/groups/:id/archive", async (req, res) => {
+  const archive = await createGroupArchive(currentUser(req), param(req, "id"), req.ip);
+  sendDownload(req, res, { ...archive });
 });
 
 adminMiscRouter.post("/groups/:id/start-production", async (req, res) => {

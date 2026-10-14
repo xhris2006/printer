@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { expect, test } from "@playwright/test";
 import { login, makePdf, register, uniquePhone } from "./helpers";
 
@@ -120,6 +121,50 @@ test.describe("Administration", () => {
       await expect(page.getByRole("heading", { level: 1, name: heading })).toBeVisible();
       await expect(page.getByText("Une erreur est survenue")).toHaveCount(0);
     }
+  });
+
+  test("reçoit et télécharge les fichiers d'une commande payée (fichier, ouverture pour impression, ZIP)", async ({ browser }) => {
+    // Le client commande et paie
+    const clientCtx = await browser.newContext();
+    const client = await clientCtx.newPage();
+    await register(client, "Client Fichiers", uniquePhone());
+    await client.goto("/espace/commandes/nouvelle");
+    const pdf = makePdf(10);
+    await client.locator('input[type="file"]').first().setInputFiles({ name: "rapport-de-stage.pdf", mimeType: "application/pdf", buffer: pdf });
+    await expect(client.getByText("Analyse terminée")).toBeVisible();
+    await client.getByRole("button", { name: "Continuer" }).click();
+    await client.getByRole("button", { name: "Continuer" }).click();
+    await client.getByRole("button", { name: "Voir le récapitulatif" }).click();
+    await client.getByRole("button", { name: "Payer 200 FCFA et valider" }).click();
+    await client.getByRole("button", { name: "Simuler un paiement réussi" }).click();
+    await client.getByRole("link", { name: "Voir ma commande" }).click();
+    await expect(client).toHaveURL(/\/espace\/commandes\/[^/]+$/);
+    const orderId = new URL(client.url()).pathname.split("/").pop() as string;
+    await clientCtx.close();
+
+    // L'administrateur est prévenu et récupère les fichiers
+    const adminCtx = await browser.newContext({ acceptDownloads: true });
+    const page = await adminCtx.newPage();
+    await login(page, process.env.E2E_ADMIN_PHONE as string, process.env.E2E_ADMIN_PASSWORD as string);
+    await page.goto("/espace/notifications");
+    await expect(page.getByText(/Nouvelle commande payée/).first()).toBeVisible();
+
+    await page.goto(`/admin/commandes/${orderId}`);
+    const files = page.getByTestId("print-files");
+    await expect(files.getByText("Fichiers à imprimer")).toBeVisible();
+    await expect(files.getByText("rapport-de-stage.pdf")).toBeVisible();
+    await expect(files.getByRole("link", { name: /Ouvrir pour imprimer/ })).toHaveAttribute("target", "_blank");
+
+    const [single] = await Promise.all([page.waitForEvent("download"), files.getByRole("link", { name: /Télécharger : rapport-de-stage\.pdf/ }).click()]);
+    expect(single.suggestedFilename()).toBe("rapport-de-stage.pdf");
+    const singleBytes = readFileSync((await single.path()) as string);
+    expect(singleBytes.equals(pdf)).toBe(true);
+
+    const [zip] = await Promise.all([page.waitForEvent("download"), files.getByRole("button", { name: /Tout télécharger \(ZIP\)/ }).click()]);
+    expect(zip.suggestedFilename()).toMatch(/-fichiers\.zip$/);
+    const zipBytes = readFileSync((await zip.path()) as string);
+    expect(zipBytes.subarray(0, 2).toString()).toBe("PK");
+    await adminCtx.close();
   });
 
   test("lance en production une commande payée depuis la file de production", async ({ page }) => {

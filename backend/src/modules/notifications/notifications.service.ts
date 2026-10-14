@@ -61,6 +61,19 @@ export async function notify(input: NotifyInput, db: Db = prisma) {
   }
 }
 
+/**
+ * Prévient l'équipe (administrateurs et opérateurs actifs) : notification dans
+ * l'espace d'administration et email si un serveur SMTP est configuré.
+ */
+export async function notifyStaff(input: Omit<NotifyInput, "userId">, options: { excludeUserId?: string | null } = {}, db: Db = prisma) {
+  const staff = await db.user.findMany({
+    where: { roleCode: { in: ["ADMIN", "OPERATOR"] }, isActive: true, ...(options.excludeUserId ? { id: { not: options.excludeUserId } } : {}) },
+    select: { id: true },
+  });
+  for (const member of staff) await notify({ ...input, userId: member.id }, db);
+  return staff.length;
+}
+
 registerJobHandler("notification.email", async (payload) => {
   const { notificationId } = payload as { notificationId: string };
   const notification = await prisma.notification.findUnique({ where: { id: notificationId }, include: { user: true } });

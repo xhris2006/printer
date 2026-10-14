@@ -10,6 +10,7 @@ import { startScheduler } from "./jobs/scheduler";
 import "./modules/documents/documents.service";
 import "./modules/notifications/notifications.service";
 import "./modules/payments/payments.service";
+import "./modules/admin/files.export";
 import "./jobs/maintenance";
 
 const worker = startWorker({ concurrency: env.WORKER_CONCURRENCY, pollMs: env.WORKER_POLL_MS });

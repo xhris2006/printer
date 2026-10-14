@@ -130,6 +130,9 @@ export interface OrderItem {
   documentAvailable: boolean;
   pageCountSource: ApiDocument["pageCountSource"];
   documentKind: ApiDocument["kind"];
+  /** Vue équipe : version PDF convertie disponible */
+  documentHasPdf?: boolean;
+  documentSizeBytes?: number | null;
   pageCount: number;
   sheets: number;
   faces: number;
