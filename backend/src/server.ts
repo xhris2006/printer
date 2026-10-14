@@ -1,5 +1,5 @@
 import { createApp } from "./app";
-import { env } from "./config/env";
+import { apiPublicUrl, env, isProduction } from "./config/env";
 import { logger } from "./lib/logger";
 import { prisma } from "./lib/prisma";
 import { startWorker, type WorkerHandle } from "./jobs/queue";
@@ -7,6 +7,8 @@ import { startScheduler } from "./jobs/scheduler";
 import { getPaymentProvider } from "./modules/payments/payments.service";
 import { isConverterAvailable } from "./modules/documents/converter";
 import { bootstrapEnvAdmin } from "./modules/auth/admin-bootstrap";
+import { getStorage } from "./modules/storage/storage";
+import { LocalStorage } from "./modules/storage/local";
 
 async function main() {
   await bootstrapEnvAdmin();
@@ -19,6 +21,17 @@ async function main() {
   if (!provider) logger.warn("Aucun fournisseur de paiement configuré : le paiement en ligne est désactivé.");
   else if (provider.environment !== "LIVE") logger.warn({ provider: provider.name }, "Paiements en MODE TEST : aucun argent réel n'est encaissé.");
   if (!(await isConverterAvailable())) logger.warn("LibreOffice introuvable : les DOC/DOCX passeront en vérification manuelle.");
+
+  const storage = getStorage();
+  if (storage instanceof LocalStorage) {
+    logger.info({ dir: storage.root, publicUrl: apiPublicUrl }, "Stockage local des fichiers");
+    await storage.checkWritable().catch((error) =>
+      logger.error({ err: error, dir: storage.root }, "Dossier de stockage NON accessible en écriture : les téléversements échoueront (droits du volume ?)"),
+    );
+    if (isProduction && env.RAILWAY_PUBLIC_DOMAIN && !env.RAILWAY_VOLUME_MOUNT_PATH) {
+      logger.warn("Stockage local sans volume Railway : les fichiers des clients seront perdus à chaque redéploiement. Montez un volume ou utilisez S3.");
+    }
+  }
 
   let worker: WorkerHandle | null = null;
   let stopScheduler: (() => void) | null = null;

@@ -20,7 +20,10 @@ const schema = z.object({
   DATABASE_URL: z.string().min(1, "DATABASE_URL est requis"),
 
   FRONTEND_URL: z.string().default("http://localhost:3000"),
-  API_PUBLIC_URL: z.string().default("http://localhost:4000"),
+  /** URL publique de l'API (liens signés du stockage local). Par défaut : domaine public Railway, sinon localhost. */
+  API_PUBLIC_URL: optionalString,
+  RAILWAY_PUBLIC_DOMAIN: optionalString,
+  RAILWAY_VOLUME_MOUNT_PATH: optionalString,
   APP_SECRET: optionalString,
   TRUST_PROXY: z.string().default("1"),
 
@@ -29,7 +32,8 @@ const schema = z.object({
   COOKIE_SECURE: optionalString,
 
   STORAGE_DRIVER: z.enum(["local", "s3"]).default("local"),
-  STORAGE_LOCAL_DIR: z.string().default("./storage"),
+  /** Dossier du stockage local. Par défaut : volume Railway monté, sinon ./storage. */
+  STORAGE_LOCAL_DIR: optionalString,
   S3_BUCKET: optionalString,
   S3_REGION: z.string().default("auto"),
   S3_ENDPOINT: optionalString,
@@ -95,6 +99,11 @@ function loadEnv(): Env {
     if (env.PAYMENT_PROVIDER === "fapshi" && env.FAPSHI_ENV === "sandbox" && !env.ALLOW_SANDBOX_IN_PRODUCTION) {
       problems.push("FAPSHI_ENV=sandbox en production : définissez FAPSHI_ENV=live ou ALLOW_SANDBOX_IN_PRODUCTION=true (préproduction).");
     }
+    if (env.STORAGE_DRIVER === "local" && !env.API_PUBLIC_URL && !env.RAILWAY_PUBLIC_DOMAIN) {
+      problems.push(
+        "API_PUBLIC_URL est requis en production avec STORAGE_DRIVER=local (URL publique de l'API, ex. https://api.exemple.com) : sans elle, les liens de téléversement et de téléchargement des fichiers pointent vers localhost.",
+      );
+    }
     if (env.PAYMENT_PROVIDER === "fapshi" && !env.FAPSHI_WEBHOOK_SECRET) {
       problems.push("FAPSHI_WEBHOOK_SECRET est requis en production pour authentifier les webhooks.");
     }
@@ -136,7 +145,12 @@ export const frontendOrigins = env.FRONTEND_URL.split(",")
   .map((o) => o.trim().replace(/\/$/, ""))
   .filter(Boolean);
 export const frontendUrl = frontendOrigins[0] ?? "http://localhost:3000";
-export const apiPublicUrl = env.API_PUBLIC_URL.replace(/\/$/, "");
+export const apiPublicUrl = (
+  env.API_PUBLIC_URL ?? (env.RAILWAY_PUBLIC_DOMAIN ? `https://${env.RAILWAY_PUBLIC_DOMAIN}` : "http://localhost:4000")
+).replace(/\/$/, "");
+
+/** Dossier du stockage local (volume persistant recommandé en production). */
+export const storageLocalDir = env.STORAGE_LOCAL_DIR ?? env.RAILWAY_VOLUME_MOUNT_PATH ?? "./storage";
 
 /** Secret applicatif : obligatoire en production, dérivé localement sinon (jamais utilisé en prod). */
 export const appSecret = env.APP_SECRET ?? "dev-only-insecure-secret-change-me-0123456789";

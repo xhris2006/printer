@@ -15,7 +15,7 @@ import {
   requestUpload,
   serializeDocument,
 } from "./documents.service";
-import { param } from "../../lib/http";
+import { param, sendDownload } from "../../lib/http";
 
 export const documentsRouter = Router();
 documentsRouter.use(requireAuth);
@@ -97,7 +97,7 @@ documentsRouter.get("/:id/download", async (req, res) => {
   await assertCanDownload(me, doc);
   if (doc.purgedAt) throw badRequest("Ce document a été supprimé conformément à la politique de conservation.");
   const url = await getStorage().getDownloadUrl(doc.storageKey, { filename: doc.originalName, expiresInSec: 300 });
-  res.json({ url, expiresInSec: 300 });
+  sendDownload(req, res, { url, expiresInSec: 300, filename: doc.originalName });
 });
 
 documentsRouter.delete("/:id", async (req, res) => {

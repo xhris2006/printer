@@ -1,9 +1,9 @@
 import { createReadStream, createWriteStream } from "node:fs";
-import { copyFile, mkdir, rename, rm, stat } from "node:fs/promises";
+import { copyFile, mkdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
-import { apiPublicUrl, appSecret, env } from "../../config/env";
+import { apiPublicUrl, appSecret, storageLocalDir } from "../../config/env";
 import { hmac, safeEqual } from "../../lib/ids";
 import { assertSafeKey } from "./keys";
 import type { StorageDriver, UploadTarget } from "./storage";
@@ -47,7 +47,7 @@ export function verifyToken<T extends UploadClaims | DownloadClaims>(token: stri
  */
 export class LocalStorage implements StorageDriver {
   readonly name = "local" as const;
-  readonly root = path.resolve(env.STORAGE_LOCAL_DIR);
+  readonly root = path.resolve(storageLocalDir);
 
   pathFor(key: string) {
     assertSafeKey(key);
@@ -107,6 +107,14 @@ export class LocalStorage implements StorageDriver {
 
   async delete(key: string) {
     await rm(this.pathFor(key), { force: true });
+  }
+
+  /** Vérifie que le dossier de stockage est accessible en écriture (diagnostic au démarrage). */
+  async checkWritable() {
+    await mkdir(this.root, { recursive: true });
+    const probe = path.join(this.root, `.write-test-${process.pid}`);
+    await writeFile(probe, "ok", { mode: 0o600 });
+    await rm(probe, { force: true });
   }
 
   async getDownloadUrl(key: string, options: { filename: string; expiresInSec?: number; inline?: boolean }) {

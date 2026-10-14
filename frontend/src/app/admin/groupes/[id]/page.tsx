@@ -18,6 +18,7 @@ import { Alert, ErrorState, Spinner, StatCard } from "@/components/ui/feedback";
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
 import { OrderStatusBadge, PaymentStateBadge } from "@/components/order/status-badge";
 import { ActionDialog, type ActionConfig } from "@/components/admin/action-dialog";
+import { ArchiveButton } from "@/components/admin/print-files";
 import { Banknote, Layers, Users } from "lucide-react";
 
 export default function AdminGroupPage() {
@@ -48,6 +49,9 @@ export default function AdminGroupPage() {
   };
   const t = group.totals;
   const canStart = ["OPEN", "CLOSED"].includes(group.status) && !(group.mode === "STUDENT_CONTRIBUTIONS" && group.status === "OPEN");
+  const printableCount = group.contributions.filter(
+    (c) => !["DRAFT", "CANCELLED", "REFUNDED"].includes(c.order.status) && (c.order.paymentStatus === "PAID" || c.order.creditApproved),
+  ).length;
 
   return (
     <div className="space-y-6">
@@ -123,6 +127,14 @@ export default function AdminGroupPage() {
               )}
             </div>
           )}
+          <div className="flex flex-col gap-3 border-t pt-3 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-sm text-muted-foreground">
+              {printableCount > 0
+                ? `Fichiers à imprimer : ${printableCount} commande(s) payée(s) ou autorisée(s), un dossier par participant, avec la fiche de production.`
+                : "Les fichiers seront téléchargeables dès qu'une commande du lot sera payée."}
+            </p>
+            <ArchiveButton path={`/admin/groups/${group.id}/archive`} label="Fichiers du lot (ZIP)" className="w-full shrink-0 sm:w-auto" disabled={printableCount === 0} />
+          </div>
         </CardContent>
       </Card>
 

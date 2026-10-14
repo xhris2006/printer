@@ -39,14 +39,8 @@ export default function DocumentsPage() {
     },
     onError: (e) => toast.error(errorMessage(e)),
   });
-  const download = async (id: string) => {
-    try {
-      const { url } = await api<{ url: string }>(`/documents/${id}/download`);
-      window.open(url, "_blank", "noopener");
-    } catch (e) {
-      toast.error(errorMessage(e));
-    }
-  };
+  // Lien direct (redirection vers un lien signé temporaire) : aucun pop-up bloqué
+  const downloadHref = (id: string) => `/api/documents/${id}/download?redirect=1`;
   return (
     <div className="space-y-6">
       <PageHeader
@@ -83,8 +77,10 @@ export default function DocumentsPage() {
                       </Badge>
                     </div>
                     {d.status !== "REJECTED" && (
-                      <Button size="icon" variant="ghost" onClick={() => download(d.id)} aria-label="Télécharger">
-                        <Download />
+                      <Button size="icon" variant="ghost" asChild>
+                        <a href={downloadHref(d.id)} aria-label="Télécharger">
+                          <Download />
+                        </a>
                       </Button>
                     )}
                     <Button size="icon" variant="ghost" className="text-destructive" onClick={() => window.confirm("Supprimer ce document ?") && remove.mutate(d.id)} aria-label="Supprimer">
@@ -120,8 +116,10 @@ export default function DocumentsPage() {
                       <TD className="text-right">
                         <div className="flex justify-end gap-1">
                           {d.status !== "REJECTED" && (
-                            <Button size="icon" variant="ghost" onClick={() => download(d.id)} aria-label="Télécharger">
-                              <Download />
+                            <Button size="icon" variant="ghost" asChild>
+                              <a href={downloadHref(d.id)} aria-label="Télécharger">
+                                <Download />
+                              </a>
                             </Button>
                           )}
                           <Button

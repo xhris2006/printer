@@ -23,7 +23,8 @@ import {
 } from "../orders/orders.service";
 import { STATUS_LABELS, validateManualTransition } from "../orders/status";
 import { serializePayment } from "../payments/payments.service";
-import { param } from "../../lib/http";
+import { param, sendDownload } from "../../lib/http";
+import { createOrderArchive } from "./files.export";
 
 export const adminOrdersRouter = Router();
 
@@ -508,7 +509,7 @@ adminOrdersRouter.post("/orders/:id/cash-payment", requireAdmin, async (req, res
 
 adminOrdersRouter.get("/documents/:id/download", async (req, res) => {
   const me = currentUser(req);
-  const { variant } = z.object({ variant: z.enum(["original", "pdf"]).default("original") }).parse(req.query);
+  const { variant } = z.object({ variant: z.enum(["original", "pdf"]).default("original") }).parse({ variant: req.query.variant });
   const doc = await prisma.document.findUnique({ where: { id: param(req, "id") } });
   if (!doc || doc.status === "DELETED" || doc.purgedAt) throw notFound("Document introuvable ou supprimé.");
   await assertCanDownload(me, doc);
@@ -523,5 +524,11 @@ adminOrdersRouter.get("/documents/:id/download", async (req, res) => {
   const filename = variant === "pdf" && doc.pdfStorageKey ? doc.originalName.replace(/\.[^.]+$/, "") + ".pdf" : doc.originalName;
   const url = await getStorage().getDownloadUrl(key, { filename, expiresInSec: 300, inline: variant === "pdf" });
   await audit({ actorId: me.id, action: "document.downloaded", entityType: "Document", entityId: doc.id, metadata: { variant }, ip: req.ip });
-  res.json({ url, expiresInSec: 300 });
+  sendDownload(req, res, { url, expiresInSec: 300, filename });
+});
+
+/** Archive ZIP de tous les fichiers de la commande + fiche de production (?redirect=1 pour un lien direct). */
+adminOrdersRouter.get("/orders/:id/archive", async (req, res) => {
+  const archive = await createOrderArchive(currentUser(req), param(req, "id"), req.ip);
+  sendDownload(req, res, { ...archive });
 });

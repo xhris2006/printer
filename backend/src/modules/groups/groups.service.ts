@@ -9,7 +9,7 @@ import { toCsv } from "../../lib/csv";
 import { printOptionsSchema } from "../pricing/pricing.schemas";
 import { getSettings } from "../settings/settings.service";
 import { audit } from "../audit/audit";
-import { notify } from "../notifications/notifications.service";
+import { notify, notifyStaff } from "../notifications/notifications.service";
 import { STATUS_LABELS } from "../orders/status";
 import { lockOrder, transitionOrder } from "../orders/orders.service";
 import { refreshGroupStatus } from "../orders/groupStatus";
@@ -272,6 +272,24 @@ export async function closeGroup(user: User, groupId: string) {
     }
     await tx.groupOrder.update({ where: { id: groupId }, data: { status: "CLOSED", closedAt: new Date() } });
     await audit({ actorId: user.id, action: "group.closed", entityType: "GroupOrder", entityId: groupId, metadata: { cancelled } }, tx);
+    if (group.mode === "STUDENT_CONTRIBUTIONS") {
+      // Les contributions payées ne sont pas signalées une à une : l'équipe est prévenue à la clôture
+      const remaining = await tx.order.findMany({
+        where: { groupOrderId: groupId, status: { notIn: ["DRAFT", "CANCELLED", "REFUNDED"] } },
+        select: { paymentStatus: true, creditApproved: true },
+      });
+      const printable = remaining.filter((o) => o.paymentStatus === "PAID" || o.creditApproved).length;
+      await notifyStaff(
+        {
+          type: "STAFF_GROUP_CLOSED",
+          title: `Collecte clôturée — ${group.code}`,
+          body: `Le délégué a clôturé « ${group.name} » (${group.className}) : ${printable} commande(s) payée(s) sur ${remaining.length}. Lancez la production puis téléchargez les fichiers du lot (ZIP).`,
+          link: `/admin/groupes/${groupId}`,
+        },
+        {},
+        tx,
+      );
+    }
     return { cancelled };
   });
 }
@@ -353,6 +371,16 @@ export async function startGroupProduction(admin: User, groupId: string, input: 
     await refreshGroupStatus(tx, groupId);
     await audit(
       { actorId: admin.id, action: input.override ? "group.production_override" : "group.production_started", entityType: "GroupOrder", entityId: groupId, metadata: { released, reason: input.reason ?? null }, ip },
+      tx,
+    );
+    await notifyStaff(
+      {
+        type: "STAFF_GROUP_IN_PRODUCTION",
+        title: `Lot ${group.code} à imprimer`,
+        body: `${released} commande(s) du lot « ${group.name} » sont passées en préparation. Téléchargez les fichiers du lot (ZIP) depuis la fiche du groupe.`,
+        link: `/admin/groupes/${group.id}`,
+      },
+      { excludeUserId: admin.id },
       tx,
     );
     await notify(

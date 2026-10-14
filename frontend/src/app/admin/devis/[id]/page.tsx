@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { useParams } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Download, Plus, Trash2 } from "lucide-react";
+import { Download, FileText, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { api, errorMessage } from "@/lib/api";
 import { fcfa, formatBytes, formatDate } from "@/lib/format";
@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { ErrorState, Spinner } from "@/components/ui/feedback";
+import { adminDocumentHref } from "@/components/admin/print-files";
 import { Field, Input, Textarea } from "@/components/ui/input";
 
 type Line = { label: string; quantity: string; unitPrice: string };
@@ -52,14 +53,6 @@ export default function AdminQuotePage() {
       setSending(false);
     }
   };
-  const download = async (docId: string) => {
-    try {
-      const { url } = await api<{ url: string }>(`/admin/documents/${docId}/download`);
-      window.open(url, "_blank", "noopener");
-    } catch (e) {
-      toast.error(errorMessage(e));
-    }
-  };
 
   return (
     <div className="max-w-4xl space-y-6">
@@ -89,9 +82,18 @@ export default function AdminQuotePage() {
               <span className="truncate">
                 {d.originalName} <span className="text-xs text-muted-foreground">({d.pageCount ?? "?"} p. · {formatBytes(d.sizeBytes)})</span>
               </span>
-              <Button size="icon" variant="ghost" onClick={() => download(d.id)} aria-label="Télécharger">
-                <Download />
-              </Button>
+              <div className="flex shrink-0 gap-1">
+                <Button size="icon" variant="ghost" asChild>
+                  <a href={adminDocumentHref(d.id, "pdf")} target="_blank" rel="noopener" aria-label="Ouvrir">
+                    <FileText />
+                  </a>
+                </Button>
+                <Button size="icon" variant="ghost" asChild>
+                  <a href={adminDocumentHref(d.id, "original")} aria-label="Télécharger">
+                    <Download />
+                  </a>
+                </Button>
+              </div>
             </div>
           ))}
         </CardContent>

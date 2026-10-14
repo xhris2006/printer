@@ -13,6 +13,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { EmptyState, ErrorState, PageHeader, Skeleton } from "@/components/ui/feedback";
 import { OrderStatusBadge } from "@/components/order/status-badge";
+import { ArchiveButton } from "@/components/admin/print-files";
 
 const NEXT: Partial<Record<OrderStatus, OrderStatus>> = { PAID: "TO_PREPARE", TO_PREPARE: "PRINTING", PRINTING: "FINISHING" };
 
@@ -65,6 +66,9 @@ function Column({ title, description, rows, icon: Icon, onAdvance }: { title: st
                   <Button size="sm" variant="success" onClick={() => onAdvance(o, readyNext)}>
                     {ORDER_STATUS_LABELS[readyNext]}
                   </Button>
+                )}
+                {!["READY_FOR_PICKUP", "OUT_FOR_DELIVERY"].includes(o.status) && o.itemsCount > 0 && (
+                  <ArchiveButton path={`/admin/orders/${o.id}/archive`} label="Fichiers (ZIP)" size="sm" variant="outline" />
                 )}
                 {["READY_FOR_PICKUP", "OUT_FOR_DELIVERY"].includes(o.status) && (
                   <Button size="sm" variant="outline" asChild>
