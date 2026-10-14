@@ -8,7 +8,7 @@ import { computeTotals, priceItem, PricingError, type ItemPrice } from "../prici
 import { buildSnapshot, loadPricing, resolveDeliveryFee, type DeliveryResolution } from "../pricing/pricing.service";
 import { notify, notifyStaff } from "../notifications/notifications.service";
 import { audit } from "../audit/audit";
-import { canTransition, IN_PRODUCTION_STATUSES, STATUS_LABELS } from "./status";
+import { canTransition, IN_PRODUCTION_STATUSES, isPreProductionStatus, isProductionStatus, STATUS_LABELS, statusOptions } from "./status";
 import type { OrderInput } from "./orders.schemas";
 import { refreshGroupStatus } from "./groupStatus";
 
@@ -61,6 +61,8 @@ export function serializeOrder(order: OrderDetail, viewer: Viewer) {
     type: order.type,
     status: order.status,
     statusLabel: STATUS_LABELS[order.status],
+    /** Vue équipe : changements de statut possibles (le rôle est vérifié par l'API) */
+    statusOptions: viewer === "staff" ? statusOptions(order) : undefined,
     paymentStatus: order.paymentStatus,
     fulfillmentMethod: order.fulfillmentMethod,
     subtotal: order.subtotal,
@@ -510,6 +512,8 @@ export interface TransitionOptions {
   note?: string;
   /** Ignore la vérification des transitions (usage interne contrôlé). */
   force?: boolean;
+  /** Retour à une étape précédente décidé par un administrateur (motif communiqué au client). */
+  correction?: boolean;
 }
 
 /** Applique un changement de statut avec historique, horodatage, effets et notifications. */
@@ -519,15 +523,20 @@ export async function transitionOrder(tx: Tx, orderId: string, to: OrderStatus, 
   if (!options.force && !canTransition(order.status, to)) {
     throw conflict(`Transition impossible : ${STATUS_LABELS[order.status]} → ${STATUS_LABELS[to]}.`, "INVALID_TRANSITION");
   }
-  if (to === "TO_PREPARE") await assertProductionAllowed(tx, order);
+  // Entrée en production (y compris en sautant des étapes) : paiement ou exception obligatoire
+  if (isProductionStatus(to) && (isPreProductionStatus(order.status) || order.status === "DRAFT")) await assertProductionAllowed(tx, order);
 
   const timestampField = STATUS_TIMESTAMPS[to];
+  const backBeforeReady = isProductionStatus(to) && to !== "READY_FOR_PICKUP" && to !== "OUT_FOR_DELIVERY";
   const updated = await tx.order.update({
     where: { id: orderId },
     data: {
       status: to,
       ...(timestampField ? { [timestampField]: new Date() } : {}),
       ...(to === "CANCELLED" && options.note ? { cancelReason: options.note } : {}),
+      // Corrections : les horodatages des étapes annulées sont effacés
+      ...(order.status === "COMPLETED" && to !== "COMPLETED" ? { completedAt: null } : {}),
+      ...(backBeforeReady && order.readyAt ? { readyAt: null } : {}),
     },
   });
   await tx.orderStatusHistory.create({
@@ -538,11 +547,25 @@ export async function transitionOrder(tx: Tx, orderId: string, to: OrderStatus, 
     await tx.pickup.upsert({
       where: { orderId },
       create: { orderId, pickupPointId: order.pickupPointId, status: "READY", readyAt: new Date() },
-      update: { status: "READY", readyAt: new Date() },
+      update: { status: "READY", readyAt: new Date(), pickedUpAt: null, pickedUpBy: null, verifiedWithCode: false },
     });
   }
   if (to === "OUT_FOR_DELIVERY") {
-    await tx.delivery.updateMany({ where: { orderId }, data: { status: "OUT_FOR_DELIVERY", dispatchedAt: new Date(), handledById: options.actorId } });
+    await tx.delivery.updateMany({
+      where: { orderId },
+      data: { status: "OUT_FOR_DELIVERY", dispatchedAt: new Date(), deliveredAt: null, receivedBy: null, handledById: options.actorId },
+    });
+  }
+  if (backBeforeReady) {
+    // Retour en production : la commande n'est plus disponible au retrait ni en livraison
+    await tx.pickup.updateMany({
+      where: { orderId, status: { in: ["READY", "PICKED_UP", "NOT_COLLECTED"] } },
+      data: { status: "WAITING", readyAt: null, pickedUpAt: null, pickedUpBy: null, verifiedWithCode: false },
+    });
+    await tx.delivery.updateMany({
+      where: { orderId, status: { not: "PENDING" } },
+      data: { status: "PENDING", dispatchedAt: null, deliveredAt: null, receivedBy: null },
+    });
   }
 
   const link = `/espace/commandes/${orderId}`;
@@ -560,8 +583,13 @@ export async function transitionOrder(tx: Tx, orderId: string, to: OrderStatus, 
     },
     REFUNDED: { title: `Commande ${order.reference} remboursée`, body: "Le remboursement de votre commande a été enregistré." },
   };
-  const message = messages[to];
-  if (message) await notify({ userId: order.customerId, orderId, type: `ORDER_${to}`, title: message.title, body: message.body, link }, tx);
+  const message = options.correction
+    ? {
+        title: `Commande ${order.reference} : statut mis à jour`,
+        body: `Nouveau statut : ${STATUS_LABELS[to]}.${options.note ? ` ${options.note}` : ""}${to === "READY_FOR_PICKUP" ? ` Code de retrait : ${order.pickupCode}.` : ""}`,
+      }
+    : messages[to];
+  if (message) await notify({ userId: order.customerId, orderId, type: options.correction ? "ORDER_STATUS_CORRECTED" : `ORDER_${to}`, title: message.title, body: message.body, link }, tx);
   if (to === "PAID") await notifyStaffOrderToPrint(tx, orderId, { actorId: options.actorId, reason: "paid" });
 
   if (order.groupOrderId) await refreshGroupStatus(tx, order.groupOrderId);

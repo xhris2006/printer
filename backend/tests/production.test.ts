@@ -52,7 +52,7 @@ describe("Production, statuts et accès", () => {
     const operator = await loginAs("OPERATOR");
     const set = (status: string) => operator.agent.post(`/api/admin/orders/${order.id}/status`).set("Origin", ORIGIN).send({ status });
 
-    expect((await set("READY_FOR_PICKUP")).status).toBe(409); // PAID → prête : interdit
+    expect((await set("PENDING_PAYMENT")).status).toBe(409); // retour avant paiement : interdit
     expect((await set("OUT_FOR_DELIVERY")).status).toBe(409);
     expect((await set("TO_PREPARE")).status).toBe(200);
     expect((await set("PRINTING")).status).toBe(200);

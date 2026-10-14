@@ -21,6 +21,8 @@ import { StatusTimeline } from "@/components/order/status-timeline";
 import { WhatsAppIcon } from "@/components/layout/whatsapp-button";
 import { ActionDialog, type ActionConfig } from "@/components/admin/action-dialog";
 import { PrintFilesCard } from "@/components/admin/print-files";
+import { StatusChangeButton, statusChangeAction, type StatusTarget } from "@/components/admin/order-status-control";
+import type { StatusChangeKind } from "@/lib/types";
 
 const NEXT_STATUSES: Partial<Record<OrderStatus, OrderStatus[]>> = {
   PAID: ["TO_PREPARE"],
@@ -67,12 +69,20 @@ export default function AdminOrderPage() {
     setBusy(null);
   };
 
-  const allowedNext = (NEXT_STATUSES[order.status] ?? []).filter((s) => {
-    if (s === "OUT_FOR_DELIVERY") return order.fulfillmentMethod === "DELIVERY";
-    if (s === "READY_FOR_PICKUP") return order.fulfillmentMethod === "PICKUP";
-    if (s === "TO_PREPARE") return order.paymentStatus === "PAID" || order.creditApproved;
-    return true;
-  });
+  // Raccourcis vers l'étape suivante (les règles viennent de l'API)
+  const allowedNext = (NEXT_STATUSES[order.status] ?? []).filter((s) =>
+    order.statusOptions?.some((o) => o.status === s && o.kind === "DIRECT" && !o.correction),
+  );
+  const target: StatusTarget = {
+    id: order.id,
+    reference: order.reference,
+    status: order.status,
+    total: order.total,
+    amountPaid: order.amountPaid,
+    customerName: order.customer?.fullName,
+    recipientName: order.delivery?.recipientName,
+  };
+  const openKind = (kind: StatusChangeKind, status: OrderStatus) => setAction(statusChangeAction(target, { kind, status, correction: false }, call));
   const contactMessage =
     order.status === "READY_FOR_PICKUP"
       ? `Bonjour ${order.customer?.fullName}, votre commande ${order.reference} est prête au point de retrait. Merci de passer la récupérer.`
@@ -112,8 +122,14 @@ export default function AdminOrderPage() {
           <PrintFilesCard order={order} role={me?.role} />
 
           <Card>
-            <CardHeader>
-              <CardTitle>Actions</CardTitle>
+            <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="space-y-1">
+                <CardTitle>Statut et actions</CardTitle>
+                <p className="flex items-center gap-2 text-sm text-muted-foreground">
+                  Statut actuel : <OrderStatusBadge status={order.status} />
+                </p>
+              </div>
+              <StatusChangeButton target={target} options={order.statusOptions} role={me?.role} submit={call} variant="outline" className="w-full sm:w-auto" />
             </CardHeader>
             <CardContent className="flex flex-wrap gap-2">
               {allowedNext.map((s) => (
@@ -126,22 +142,7 @@ export default function AdminOrderPage() {
               )}
               {order.status === "READY_FOR_PICKUP" && (
                 <>
-                  <Button
-                    variant="success"
-                    onClick={() =>
-                      setAction({
-                        title: "Remise au client",
-                        description: "Saisissez le code de retrait présenté par le client. Sans code, décrivez la vérification effectuée.",
-                        confirmLabel: "Confirmer la remise",
-                        fields: [
-                          { name: "code", label: "Code de retrait (6 chiffres)" },
-                          { name: "recipientName", label: "Nom de la personne qui retire", required: true, minLength: 2, defaultValue: order.customer?.fullName },
-                          { name: "note", label: "Vérification (si pas de code)", type: "textarea" },
-                        ],
-                        onSubmit: (v) => call("handover", { code: v.code || undefined, recipientName: v.recipientName, note: v.note || undefined }, "Commande remise."),
-                      })
-                    }
-                  >
+                  <Button variant="success" onClick={() => openKind("HANDOVER", "COMPLETED")}>
                     <PackageCheck /> Remettre
                   </Button>
                   <Button variant="outline" onClick={() => call("remind", {}, "Rappel envoyé.").catch(() => undefined)}>
@@ -183,53 +184,17 @@ export default function AdminOrderPage() {
               )}
               {order.status === "OUT_FOR_DELIVERY" && (
                 <>
-                  <Button
-                    variant="success"
-                    onClick={() =>
-                      setAction({
-                        title: "Livraison effectuée",
-                        confirmLabel: "Confirmer la livraison",
-                        fields: [
-                          { name: "receivedBy", label: "Reçue par", required: true, minLength: 2, defaultValue: order.delivery?.recipientName },
-                          { name: "note", label: "Preuve / remarque", type: "textarea" },
-                        ],
-                        onSubmit: (v) => call("deliver", { receivedBy: v.receivedBy, note: v.note || undefined }, "Livraison enregistrée."),
-                      })
-                    }
-                  >
+                  <Button variant="success" onClick={() => openKind("DELIVER", "COMPLETED")}>
                     <Truck /> Livrée
                   </Button>
-                  <Button
-                    variant="outline"
-                    onClick={() =>
-                      setAction({
-                        title: "Livraison échouée",
-                        description: "La commande repassera « Prête à retirer ».",
-                        confirmLabel: "Enregistrer",
-                        fields: [{ name: "note", label: "Motif", type: "textarea", required: true, minLength: 5 }],
-                        onSubmit: (v) => call("delivery-failed", { note: v.note }, "Livraison échouée enregistrée."),
-                      })
-                    }
-                  >
+                  <Button variant="outline" onClick={() => openKind("DELIVERY_FAILED", "READY_FOR_PICKUP")}>
                     Échec de livraison
                   </Button>
                 </>
               )}
               {isAdmin && order.status === "PENDING_PAYMENT" && order.paymentStatus !== "PAID" && (
                 <>
-                  <Button
-                    variant="outline"
-                    onClick={() =>
-                      setAction({
-                        title: "Encaissement en espèces",
-                        description: `Montant : ${fcfa(order.total)}. Confirmez uniquement si l'argent a bien été reçu.`,
-                        confirmLabel: "Confirmer l'encaissement",
-                        fields: [{ name: "note", label: "Note (reçu, personne…)", required: true, minLength: 3 }],
-                        onSubmit: (v) => call("cash-payment", { note: v.note }, "Paiement enregistré."),
-                      })
-                    }
-                    disabled={order.total === null}
-                  >
+                  <Button variant="outline" onClick={() => openKind("CASH", "PAID")} disabled={order.total === null}>
                     <Banknote /> Paiement espèces reçu
                   </Button>
                   {!order.creditApproved && (
@@ -266,52 +231,12 @@ export default function AdminOrderPage() {
                 </Button>
               )}
               {isAdmin && ["DRAFT", "PENDING_PAYMENT", "PAID", "TO_PREPARE"].includes(order.status) && (
-                <Button
-                  variant="ghost"
-                  className="text-destructive"
-                  onClick={() =>
-                    setAction({
-                      title: "Annuler la commande",
-                      description: order.paymentStatus === "PAID" ? "La commande est payée : consignez ensuite le remboursement effectué." : undefined,
-                      confirmLabel: "Annuler la commande",
-                      destructive: true,
-                      fields: [{ name: "reason", label: "Motif (communiqué au client)", type: "textarea", required: true, minLength: 5 }],
-                      onSubmit: (v) => call("cancel", { reason: v.reason }, "Commande annulée."),
-                    })
-                  }
-                >
+                <Button variant="ghost" className="text-destructive" onClick={() => openKind("CANCEL", "CANCELLED")}>
                   <Ban /> Annuler
                 </Button>
               )}
               {isAdmin && order.payments.some((p) => p.status === "SUCCESSFUL") && order.paymentStatus !== "REFUNDED" && (
-                <Button
-                  variant="ghost"
-                  onClick={() =>
-                    setAction({
-                      title: "Consigner un remboursement",
-                      description: "Fapshi ne propose pas d'API de remboursement : effectuez le remboursement (transfert Mobile Money, espèces…) puis enregistrez-le ici.",
-                      confirmLabel: "Enregistrer",
-                      fields: [
-                        { name: "amount", label: "Montant remboursé (FCFA)", type: "number", required: true, defaultValue: order.amountPaid.toString() },
-                        {
-                          name: "method",
-                          label: "Moyen",
-                          type: "select",
-                          defaultValue: "MOBILE_MONEY",
-                          options: [
-                            { value: "MOBILE_MONEY", label: "Mobile Money" },
-                            { value: "FAPSHI_PAYOUT", label: "Transfert Fapshi" },
-                            { value: "CASH", label: "Espèces" },
-                            { value: "OTHER", label: "Autre" },
-                          ],
-                        },
-                        { name: "reference", label: "Référence de l'opération" },
-                        { name: "note", label: "Note", type: "textarea", required: true, minLength: 5 },
-                      ],
-                      onSubmit: (v) => call("refund", { amount: Number(v.amount), method: v.method, reference: v.reference || undefined, note: v.note }, "Remboursement consigné."),
-                    })
-                  }
-                >
+                <Button variant="ghost" onClick={() => openKind("REFUND", "REFUNDED")}>
                   <Undo2 /> Remboursement
                 </Button>
               )}
