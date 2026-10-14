@@ -146,12 +146,24 @@ export interface OrderItem {
   lineTotal: number;
 }
 
+/** Changement de statut proposé à l'équipe (règles calculées par l'API). */
+export type StatusChangeKind = "DIRECT" | "HANDOVER" | "DELIVER" | "DELIVERY_FAILED" | "CASH" | "CANCEL" | "REFUND";
+export interface StatusOption {
+  status: OrderStatus;
+  label: string;
+  kind: StatusChangeKind;
+  adminOnly: boolean;
+  correction: boolean;
+}
+
 export interface Order {
   id: string;
   reference: string;
   type: "STANDARD" | "GROUP" | "SERVICE";
   status: OrderStatus;
   statusLabel: string;
+  /** Vue équipe uniquement */
+  statusOptions?: StatusOption[];
   paymentStatus: PaymentState;
   fulfillmentMethod: "PICKUP" | "DELIVERY";
   subtotal: number;
@@ -321,12 +333,14 @@ export interface AdminOrderRow {
   type: Order["type"];
   status: OrderStatus;
   statusLabel: string;
+  statusOptions: StatusOption[];
   paymentStatus: PaymentState;
   creditApproved: boolean;
   fulfillmentMethod: "PICKUP" | "DELIVERY";
   total: number | null;
+  amountPaid: number;
   customer: { id: string; fullName: string; phone: string };
-  group: { id: string; code: string; name: string } | null;
+  group: { id: string; code: string; name: string; mode?: "DELEGATE_COLLECT" | "STUDENT_CONTRIBUTIONS" } | null;
   itemsCount: number;
   pagesCount: number;
   sheetsCount: number;

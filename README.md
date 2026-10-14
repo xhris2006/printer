@@ -50,6 +50,11 @@ Les deux applications sont indépendantes. Le frontend relaie `/api/*` vers l'AP
 **Administration et production** (rôles `ADMIN` et `OPERATOR`)
 - Tableau de bord (encaissements sur 30 jours, files, alertes) et liste des commandes filtrable (date, statut, type, paiement, remise, recherche). Export CSV protégé contre l'injection de formules.
 - File de production (payées ou autorisées uniquement), changements de statut contrôlés par une machine à états.
+- **Changer le statut** d'une commande depuis sa fiche, la liste des commandes ou la file de production (bouton « Changer le statut ») :
+  - avancer d'une ou plusieurs étapes (À préparer, En impression, En finition, Prête à retirer ou En livraison), uniquement après paiement ou exception ;
+  - corriger une erreur en revenant à une étape précédente, y compris après une remise enregistrée par erreur : réservé aux administrateurs, motif obligatoire communiqué au client, action journalisée ;
+  - les statuts qui exigent une preuve passent par leur saisie dédiée, proposée dans la même liste : remise (code de retrait), livraison (réceptionnaire), échec de livraison, paiement en espèces réellement reçu, annulation motivée, remboursement consigné. Aucun paiement ne peut être marqué « payé » sans encaissement.
+  - Les statuts proposés sont calculés par l'API (`statusOptions`) selon le statut, le paiement, le mode de remise et le groupe.
 - **Réception des fichiers à imprimer** :
   - l'équipe (administrateurs et opérateurs) est prévenue de chaque commande payée, dans l'espace et par email si SMTP est configuré, avec le lien vers la commande ;
   - la fiche commande affiche en tête une carte « Fichiers à imprimer » : « Ouvrir » affiche le fichier (version PDF pour les documents Word) pour l'imprimer directement, « Télécharger » récupère l'original ;
@@ -318,7 +323,7 @@ cd frontend && npm run build && BACKEND_URL=http://localhost:4000 npm start
 E2E_ADMIN_PHONE=6XXXXXXXX E2E_ADMIN_PASSWORD=... npm run test:e2e
 ```
 
-Couverture backend (87 tests) :
+Couverture backend (91 tests) :
 - tarification (N&B, couleur, recto verso distinct, feuilles et faces, exemplaires, reliures, combinaisons non configurées) ;
 - analyse des fichiers (multipage, images, extensions falsifiées, PDF corrompu ou avec JavaScript, DOCX avec macros, conversion LibreOffice) ;
 - commandes multi-documents (30 fichiers, montants client ignorés, instantané figé, livraison à confirmer) ;
@@ -327,6 +332,7 @@ Couverture backend (87 tests) :
 - validation par le paiement : brouillon non visible en production, « payer et valider », refus sans figer si le paiement est impossible, changement de tarif signalé ;
 - administrateur défini par variables (création, synchronisation, connexion) ;
 - réception des fichiers par l'équipe : lien direct (redirection), fichier intact, page d'erreur lisible, archive ZIP (originaux, PDF convertis, fiche de production, fichiers supprimés signalés, suppression automatique), archive de groupe (un dossier par commande payée), alertes à l'équipe pour chaque commande payée et à la clôture d'une collecte ;
+- changement de statut par l'administration (règles proposées, étapes sautées après paiement uniquement, corrections réservées à l'admin avec motif, client prévenu et journal, statuts à preuve via leur action dédiée, remise erronée annulable) ;
 - production et transitions de statut, accès aux fichiers et par rôle, suivi public, devis, rappels et conservation, authentification.
 
 Les parcours E2E Playwright (mobile et bureau) couvrent :
@@ -337,6 +343,7 @@ Les parcours E2E Playwright (mobile et bureau) couvrent :
 - le refus de format ;
 - les pages d'administration ;
 - la réception des fichiers par l'administrateur (notification, téléchargement d'un fichier identique à l'original, archive ZIP) ;
+- le changement de statut depuis la fiche commande et depuis la liste, avec correction motivée ;
 - le lancement en production ;
 - la validation d'un délégué et la création d'un lot avec lien de collecte.
 

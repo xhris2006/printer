@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { expect, test } from "@playwright/test";
+import { expect, test, type Browser } from "@playwright/test";
 import { login, makePdf, register, uniquePhone } from "./helpers";
 
 test.describe("Pages publiques", () => {
@@ -123,14 +123,13 @@ test.describe("Administration", () => {
     }
   });
 
-  test("reçoit et télécharge les fichiers d'une commande payée (fichier, ouverture pour impression, ZIP)", async ({ browser }) => {
-    // Le client commande et paie
+  /** Un client commande un PDF de 10 pages et paie (simulateur) ; renvoie l'identifiant de la commande. */
+  async function paidOrder(browser: Browser, fileName: string, pdf: Buffer) {
     const clientCtx = await browser.newContext();
     const client = await clientCtx.newPage();
     await register(client, "Client Fichiers", uniquePhone());
     await client.goto("/espace/commandes/nouvelle");
-    const pdf = makePdf(10);
-    await client.locator('input[type="file"]').first().setInputFiles({ name: "rapport-de-stage.pdf", mimeType: "application/pdf", buffer: pdf });
+    await client.locator('input[type="file"]').first().setInputFiles({ name: fileName, mimeType: "application/pdf", buffer: pdf });
     await expect(client.getByText("Analyse terminée")).toBeVisible();
     await client.getByRole("button", { name: "Continuer" }).click();
     await client.getByRole("button", { name: "Continuer" }).click();
@@ -141,6 +140,13 @@ test.describe("Administration", () => {
     await expect(client).toHaveURL(/\/espace\/commandes\/[^/]+$/);
     const orderId = new URL(client.url()).pathname.split("/").pop() as string;
     await clientCtx.close();
+    return orderId;
+  }
+
+  test("reçoit et télécharge les fichiers d'une commande payée (fichier, ouverture pour impression, ZIP)", async ({ browser }) => {
+    // Le client commande et paie
+    const pdf = makePdf(10);
+    const orderId = await paidOrder(browser, "rapport-de-stage.pdf", pdf);
 
     // L'administrateur est prévenu et récupère les fichiers
     const adminCtx = await browser.newContext({ acceptDownloads: true });
@@ -165,6 +171,42 @@ test.describe("Administration", () => {
     const zipBytes = readFileSync((await zip.path()) as string);
     expect(zipBytes.subarray(0, 2).toString()).toBe("PK");
     await adminCtx.close();
+  });
+
+  test("change le statut d'une commande depuis la fiche et depuis la liste, avec correction motivée", async ({ browser }) => {
+    const orderId = await paidOrder(browser, "statut.pdf", makePdf(10));
+    const ctx = await browser.newContext();
+    const page = await ctx.newPage();
+    await login(page, process.env.E2E_ADMIN_PHONE as string, process.env.E2E_ADMIN_PASSWORD as string);
+    await page.goto(`/admin/commandes/${orderId}`);
+    const dialog = page.getByRole("dialog");
+
+    // Avancer directement à « Prête à retirer »
+    await page.getByRole("button", { name: "Changer le statut" }).click();
+    await dialog.getByRole("button", { name: "Passer à Prête à retirer" }).click();
+    await dialog.getByRole("button", { name: "Mettre à jour" }).click();
+    await expect(page.getByText("Statut : Prête à retirer")).toBeVisible();
+    await expect(page.getByRole("heading", { level: 1 })).toContainText("Prête à retirer");
+
+    // Corriger : retour « En impression » avec motif obligatoire
+    await page.getByRole("button", { name: "Changer le statut" }).click();
+    await dialog.getByRole("button", { name: "Passer à En impression" }).click();
+    const confirm = dialog.getByRole("button", { name: "Corriger le statut" });
+    await expect(confirm).toBeDisabled();
+    await dialog.getByLabel("Motif (communiqué au client)").fill("Une page est à réimprimer");
+    await confirm.click();
+    await expect(page.getByText("Statut corrigé : En impression")).toBeVisible();
+    await expect(page.getByRole("heading", { level: 1 })).toContainText("En impression");
+
+    // Depuis la liste des commandes
+    const reference = (await page.getByRole("heading", { level: 1 }).innerText()).split(/\s/)[0];
+    await page.goto(`/admin/commandes?q=${reference}`);
+    await page.getByRole("button", { name: /Changer/ }).filter({ visible: true }).first().click();
+    await dialog.getByRole("button", { name: "Passer à En finition" }).click();
+    await dialog.getByRole("button", { name: "Mettre à jour" }).click();
+    await expect(page.getByText(`${reference} — Statut : En finition`)).toBeVisible();
+    await expect(page.getByText("En finition").filter({ visible: true }).first()).toBeVisible();
+    await ctx.close();
   });
 
   test("lance en production une commande payée depuis la file de production", async ({ page }) => {

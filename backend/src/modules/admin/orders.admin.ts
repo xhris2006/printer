@@ -15,13 +15,14 @@ import { assertCanDownload } from "../documents/documents.service";
 import { getStorage } from "../storage/storage";
 import { priceItem, PricingError, type FinishingLike, type PriceRuleLike } from "../pricing/pricing";
 import {
+  assertProductionAllowed,
   getOrderDetail,
   lockOrder,
   recordAdminCredit,
   serializeOrder,
   transitionOrder,
 } from "../orders/orders.service";
-import { STATUS_LABELS, validateManualTransition } from "../orders/status";
+import { isPreProductionStatus, isProductionStatus, STATUS_LABELS, statusOptions } from "../orders/status";
 import { serializePayment } from "../payments/payments.service";
 import { param, sendDownload } from "../../lib/http";
 import { createOrderArchive } from "./files.export";
@@ -81,7 +82,7 @@ function buildWhere(f: z.infer<typeof filtersSchema>): Prisma.OrderWhereInput {
 const listInclude = {
   customer: { select: { id: true, fullName: true, phone: true } },
   items: { select: { pageCount: true, sheets: true, copies: true, document: { select: { pageCountSource: true } } } },
-  groupOrder: { select: { id: true, code: true, name: true } },
+  groupOrder: { select: { id: true, code: true, name: true, mode: true, status: true } },
   pickup: { select: { status: true, readyAt: true, rescheduledTo: true } },
 } satisfies Prisma.OrderInclude;
 
@@ -98,12 +99,14 @@ function serializeListOrder(o: ListOrder, holdDays: number) {
     type: o.type,
     status: o.status,
     statusLabel: STATUS_LABELS[o.status],
+    statusOptions: statusOptions(o),
     paymentStatus: o.paymentStatus,
     creditApproved: o.creditApproved,
     fulfillmentMethod: o.fulfillmentMethod,
     total: o.total,
+    amountPaid: o.amountPaid,
     customer: o.customer,
-    group: o.groupOrder,
+    group: o.groupOrder ? { id: o.groupOrder.id, code: o.groupOrder.code, name: o.groupOrder.name, mode: o.groupOrder.mode } : null,
     itemsCount: o.items.length,
     pagesCount: o.items.reduce((s, i) => s + i.pageCount, 0),
     sheetsCount: o.items.reduce((s, i) => s + i.sheets, 0),
@@ -190,17 +193,45 @@ adminOrdersRouter.get("/orders/:id", async (req, res) => {
   res.json({ order: serializeOrder(order, "staff") });
 });
 
+/**
+ * Changement de statut par l'équipe : avancer d'une ou plusieurs étapes de production
+ * (paiement ou exception requis), ou corriger une erreur en revenant à une étape
+ * précédente (administrateur, motif obligatoire, client prévenu). Les statuts qui
+ * exigent une preuve (remise, livraison, paiement, annulation, remboursement) passent
+ * par leur action dédiée.
+ */
 adminOrdersRouter.post("/orders/:id/status", async (req, res) => {
   const me = currentUser(req);
   const input = z.object({ status: z.enum(ORDER_STATUSES), note: z.string().trim().max(500).optional() }).parse(req.body);
   await prisma.$transaction(async (tx) => {
     await lockOrder(tx, param(req, "id"));
-    const order = await tx.order.findUnique({ where: { id: param(req, "id") } });
+    const order = await tx.order.findUnique({ where: { id: param(req, "id") }, include: { groupOrder: { select: { mode: true, status: true } } } });
     if (!order) throw notFound("Commande introuvable.");
-    const error = validateManualTransition(order.status, input.status, me.roleCode, order.fulfillmentMethod);
-    if (error) throw conflict(error, "INVALID_TRANSITION");
-    await transitionOrder(tx, order.id, input.status, { actorId: me.id, note: input.note });
-    await audit({ actorId: me.id, action: "order.status_changed", entityType: "Order", entityId: order.id, metadata: { from: order.status, to: input.status }, ip: req.ip }, tx);
+    const option = statusOptions(order).find((o) => o.status === input.status);
+    if (!option) {
+      // Message précis lorsque seule l'absence de paiement bloque la production
+      if (isProductionStatus(input.status) && isPreProductionStatus(order.status)) await assertProductionAllowed(tx, order);
+      throw conflict(`Passage impossible : ${STATUS_LABELS[order.status]} → ${STATUS_LABELS[input.status]}.`, "INVALID_TRANSITION");
+    }
+    if (option.kind !== "DIRECT") {
+      throw conflict(`« ${option.label} » s'enregistre avec son action dédiée (preuve de remise, de livraison, de paiement, motif d'annulation ou remboursement).`, "DEDICATED_ACTION");
+    }
+    if (option.adminOnly && me.roleCode !== "ADMIN") throw forbidden("Le retour à une étape précédente est réservé à un administrateur.");
+    if (option.correction && (!input.note || input.note.length < 5)) {
+      throw badRequest("Indiquez le motif de la correction (5 caractères minimum) : il est communiqué au client.", "NOTE_REQUIRED");
+    }
+    await transitionOrder(tx, order.id, input.status, { actorId: me.id, note: input.note, force: true, correction: option.correction });
+    await audit(
+      {
+        actorId: me.id,
+        action: option.correction ? "order.status_corrected" : "order.status_changed",
+        entityType: "Order",
+        entityId: order.id,
+        metadata: { from: order.status, to: input.status, ...(input.note ? { note: input.note } : {}) },
+        ip: req.ip,
+      },
+      tx,
+    );
   });
   res.json({ order: serializeOrder(await getOrderDetail(param(req, "id")), "staff") });
 });

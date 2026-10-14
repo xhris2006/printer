@@ -14,10 +14,21 @@ import { Badge } from "@/components/ui/badge";
 import { EmptyState, ErrorState, PageHeader, Skeleton } from "@/components/ui/feedback";
 import { OrderStatusBadge } from "@/components/order/status-badge";
 import { ArchiveButton } from "@/components/admin/print-files";
+import { StatusChangeButton } from "@/components/admin/order-status-control";
+import { useMe } from "@/lib/hooks";
 
 const NEXT: Partial<Record<OrderStatus, OrderStatus>> = { PAID: "TO_PREPARE", TO_PREPARE: "PRINTING", PRINTING: "FINISHING" };
 
-function Column({ title, description, rows, icon: Icon, onAdvance }: { title: string; description: string; rows: AdminOrderRow[]; icon: typeof Factory; onAdvance: (o: AdminOrderRow, s: OrderStatus) => void }) {
+interface ColumnProps {
+  title: string;
+  description: string;
+  rows: AdminOrderRow[];
+  icon: typeof Factory;
+  onAdvance: (o: AdminOrderRow, s: OrderStatus) => void;
+  statusControl: (o: AdminOrderRow) => React.ReactNode;
+}
+
+function Column({ title, description, rows, icon: Icon, onAdvance, statusControl }: ColumnProps) {
   return (
     <Card>
       <CardHeader>
@@ -75,6 +86,7 @@ function Column({ title, description, rows, icon: Icon, onAdvance }: { title: st
                     <Link href={`/admin/commandes/${o.id}`}>{o.status === "READY_FOR_PICKUP" ? "Remettre" : "Confirmer la livraison"}</Link>
                   </Button>
                 )}
+                {statusControl(o)}
                 <span className="ml-auto self-center text-[11px] text-muted-foreground">{o.paidAt ? `Payée ${formatDate(o.paidAt, true)}` : ""}</span>
               </div>
             </div>
@@ -87,6 +99,7 @@ function Column({ title, description, rows, icon: Icon, onAdvance }: { title: st
 
 export default function ProductionPage() {
   const qc = useQueryClient();
+  const { data: me } = useMe();
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: ["admin", "production"],
     queryFn: () => api<{ toRelease: AdminOrderRow[]; inProduction: AdminOrderRow[]; ready: AdminOrderRow[] }>("/admin/production"),
@@ -101,6 +114,26 @@ export default function ProductionPage() {
       toast.error(errorMessage(e));
     }
   };
+  const statusControl = (o: AdminOrderRow) => (
+    <StatusChangeButton
+      target={{ id: o.id, reference: o.reference, status: o.status, total: o.total, amountPaid: o.amountPaid, customerName: o.customer.fullName }}
+      options={o.statusOptions}
+      role={me?.role}
+      submit={async (path, body, success) => {
+        try {
+          await api(`/admin/orders/${o.id}/${path}`, { body });
+          toast.success(`${o.reference} — ${success}`);
+          qc.invalidateQueries({ queryKey: ["admin"] });
+        } catch (e) {
+          toast.error(errorMessage(e));
+          throw e;
+        }
+      }}
+      variant="ghost"
+      size="sm"
+      label="Statut…"
+    />
+  );
   return (
     <div className="space-y-6">
       <PageHeader title="Production" description="Seules les commandes payées (ou autorisées par un administrateur) apparaissent ici." />
@@ -112,9 +145,9 @@ export default function ProductionPage() {
         <EmptyState icon={Factory} title="Aucune commande en production" description="Les commandes apparaissent ici dès la confirmation de leur paiement." />
       ) : (
         <div className="grid gap-6 xl:grid-cols-3">
-          <Column title="À lancer" description="Paiement confirmé" rows={data.toRelease} icon={PlayCircle} onAdvance={advance} />
-          <Column title="En cours" description="Préparation, impression, finition" rows={data.inProduction} icon={Factory} onAdvance={advance} />
-          <Column title="À remettre" description="Prêtes à retirer ou en livraison" rows={data.ready} icon={PackageCheck} onAdvance={advance} />
+          <Column title="À lancer" description="Paiement confirmé" rows={data.toRelease} icon={PlayCircle} onAdvance={advance} statusControl={statusControl} />
+          <Column title="En cours" description="Préparation, impression, finition" rows={data.inProduction} icon={Factory} onAdvance={advance} statusControl={statusControl} />
+          <Column title="À remettre" description="Prêtes à retirer ou en livraison" rows={data.ready} icon={PackageCheck} onAdvance={advance} statusControl={statusControl} />
         </div>
       )}
     </div>

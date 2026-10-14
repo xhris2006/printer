@@ -25,7 +25,7 @@ function AdminOrders() {
     fulfillment: "",
     from: "",
     to: "",
-    q: "",
+    q: params.get("q") ?? "",
   });
   const [page, setPage] = useState(1);
   const q = useDebounced(filters.q, 350);
